@@ -123,6 +123,8 @@ enum RemoteMappingTarget: String, CaseIterable, Identifiable, Codable, Hashable 
     case lockScreen
     case sleep
     case appSwitcher
+    case focusCurrentInput
+    case openApp
     case custom
 
     var id: String { rawValue }
@@ -160,6 +162,8 @@ enum RemoteMappingTarget: String, CaseIterable, Identifiable, Codable, Hashable 
         case .lockScreen: L10n.text("锁屏", "Lock Screen")
         case .sleep: L10n.text("睡眠", "Sleep")
         case .appSwitcher: L10n.text("切换应用", "App Switcher")
+        case .focusCurrentInput: L10n.text("聚焦当前输入框", "Focus Input Box")
+        case .openApp: L10n.text("打开指定应用…", "Open App…")
         case .custom: L10n.text("录制任意按键…", "Record a key…")
         }
     }
@@ -211,6 +215,8 @@ enum RemoteMappingTarget: String, CaseIterable, Identifiable, Codable, Hashable 
         case .appSwitcher:
             // 切换应用：按下=开启/延续会话（⌘ 虚拟按住），松手无动作，由 1s 倒计时收尾。
             if isDown { AppSwitcherSession.shared.tapSwitcher() }
+        case .focusCurrentInput:
+            if isDown { InputFocusCoordinator.shared.focusFrontmostNow() }
         default:
             if let keyboard {
                 let source = CGEventSource(stateID: .hidSystemState)
@@ -267,94 +273,6 @@ struct RemoteCustomShortcut: Codable, Hashable {
     }
 }
 
-/// 切换应用会话：⌘ 虚拟按住 + Tab 发射 + 1s 倒计时自动收尾。
-/// 不依赖长按松手边沿，X6 / Chromecast 共用同一交互。
-///
-/// ⚠️ 收尾定时用 GCD 主队列（DispatchWorkItem），不用 Timer.scheduledTimer——
-/// HID 回调在后台线程，后台 RunLoop 不跑 timer mode，定时器会永远不触发。
-final class AppSwitcherSession {
-    static let shared = AppSwitcherSession()
-
-    /// 倒计时时长：会话内任何一次会话键按下都会重置。
-    static let idleInterval: TimeInterval = 1.0
-
-    private(set) var isActive = false
-    private var pending: DispatchWorkItem?
-
-    private var source: CGEventSource? { CGEventSource(stateID: .hidSystemState) }
-
-    /// 切换应用键按下：首次=开启会话（⌘↓ + Tab），会话中=再发一次 Tab（等同连按 Tab）。
-    func tapSwitcher() {
-        if isActive {
-            tapTab(shift: false)
-        } else {
-            isActive = true
-            postKey(55, flags: [.maskCommand], down: true)
-            tapTab(shift: false)
-        }
-        schedule()
-    }
-
-    /// 方向键重定向入口。返回 false 表示会话未激活，调用方按原逻辑处理。
-    func redirectArrow(isRight: Bool) {
-        guard isActive else { return }
-        tapTab(shift: !isRight)
-        schedule()
-    }
-
-    /// 会话收尾（⌘↑）或外部取消。幂等。
-    func cancel() {
-        pending?.cancel()
-        pending = nil
-        guard isActive else { return }
-        isActive = false
-        // ⌘↑ 事件的 flags 必须为空（表示释放后无任何修饰键按下）；
-        // 若仍带 .maskCommand，系统会认为 ⌘ 还按着，切换器永远不会关闭。
-        postKey(55, flags: [], down: false)
-    }
-
-    private func tapTab(shift: Bool) {
-        var flags: CGEventFlags = [.maskCommand]
-        if shift { flags.insert(.maskShift) }
-        postKey(48, flags: flags, down: true)
-        postKey(48, flags: flags, down: false)
-    }
-
-    private func schedule() {
-        pending?.cancel()
-        let item = DispatchWorkItem { [weak self] in
-            self?.cancel()
-        }
-        pending = item
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + Self.idleInterval,
-            execute: item
-        )
-    }
-
-    private func postKey(_ keyCode: CGKeyCode, flags: CGEventFlags, down: Bool) {
-        guard let event = CGEvent(
-            keyboardEventSource: source,
-            virtualKey: keyCode,
-            keyDown: down
-        ) else { return }
-        event.flags = flags
-        event.setIntegerValueField(.eventSourceUserData, value: Key.syntheticMarker)
-        event.post(tap: .cghidEventTap)
-    }
-}
-
-enum AppSwitcherSupport {
-    /// 睡眠：无可靠系统组合键（pmset/IOKit 均需 root），走 System Events。
-    /// 首次触发时 macOS 会弹一次 TCC 授权（vRemote → System Events）。
-    static func requestSystemSleep() {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        task.arguments = ["-e", "tell application \"System Events\" to sleep"]
-        try? task.run()
-    }
-}
-
 final class RemoteMappingStore: ObservableObject {
     static let shared = RemoteMappingStore()
 
@@ -363,6 +281,7 @@ final class RemoteMappingStore: ObservableObject {
     private let prefix = "remoteMapping."
     private let enabledPrefix = "remoteMappingEnabled."
     private let customPrefix = "remoteCustomMapping."
+    private let appLaunchPrefix = "remoteAppLaunch."
 
     private init() {}
 
@@ -422,6 +341,27 @@ final class RemoteMappingStore: ObservableObject {
         }
     }
 
+    func appLaunchConfig(
+        for button: RemoteButtonDefinition,
+        remote: SupportedRemoteID
+    ) -> RemoteAppLaunchConfig? {
+        let key = appLaunchPrefix + remote.rawValue + "." + button.id
+        guard let data = defaults.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(RemoteAppLaunchConfig.self, from: data)
+    }
+
+    func setAppLaunchConfig(
+        _ config: RemoteAppLaunchConfig,
+        for button: RemoteButtonDefinition,
+        remote: SupportedRemoteID
+    ) {
+        let key = appLaunchPrefix + remote.rawValue + "." + button.id
+        if let data = try? JSONEncoder().encode(config) {
+            defaults.set(data, forKey: key)
+            setTarget(.openApp, for: button, remote: remote)
+        }
+    }
+
     func targetTitle(
         for button: RemoteButtonDefinition,
         remote: SupportedRemoteID
@@ -430,6 +370,10 @@ final class RemoteMappingStore: ObservableObject {
         if value == .custom,
            let shortcut = customShortcut(for: button, remote: remote) {
             return shortcut.label
+        }
+        if value == .openApp,
+           let appConfig = appLaunchConfig(for: button, remote: remote) {
+            return L10n.text("打开 \(appConfig.name)", "Open \(appConfig.name)")
         }
         return value.title
     }
@@ -450,6 +394,10 @@ final class RemoteMappingStore: ObservableObject {
         }
         if value == .custom {
             customShortcut(for: button, remote: remote)?.post(isDown: isDown)
+        } else if value == .openApp {
+            if isDown, let config = appLaunchConfig(for: button, remote: remote) {
+                AppLaunchService.launchOrActivate(config: config)
+            }
         } else {
             value.post(isDown: isDown)
         }
@@ -462,6 +410,9 @@ final class RemoteMappingStore: ObservableObject {
             )
             defaults.removeObject(
                 forKey: customPrefix + remote.rawValue + "." + button.id
+            )
+            defaults.removeObject(
+                forKey: appLaunchPrefix + remote.rawValue + "." + button.id
             )
         }
         revision += 1

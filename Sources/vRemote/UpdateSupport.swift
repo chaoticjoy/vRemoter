@@ -333,7 +333,7 @@ final class UpdateWindowController: NSWindowController, NSWindowDelegate {
         let info = Bundle.main.infoDictionary ?? [:]
         let releasesURL = (info["VRReleasesURL"] as? String)
             .flatMap(URL.init(string:))
-            ?? URL(string: "https://api.github.com/repos/ccc333cn/vRemoter/releases")!
+            ?? URL(string: "https://api.github.com/repos/chaoticjoy/vRemoter/releases")!
         let version = info["CFBundleShortVersionString"] as? String ?? "development"
         model = UpdateWindowModel(releasesURL: releasesURL, currentVersion: version)
 

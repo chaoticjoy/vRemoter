@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build & Run Self-Tests
+        run: |
+          swift build --disable-sandbox
+          .build/debug/vRemote --voice-session-self-test
+          Scripts/run-self-tests.sh
+
+      - name: Build App Bundle & DMG
+        run: |
+          Scripts/build-dmg.sh
+

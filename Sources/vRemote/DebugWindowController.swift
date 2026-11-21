@@ -151,7 +151,7 @@ enum PermissionKind: String, Identifiable, CaseIterable {
     }
 }
 
-private enum ConsoleTheme {
+enum ConsoleTheme {
     static let panel = Color(red: 0.055, green: 0.059, blue: 0.067)
     static let surface = Color(red: 0.083, green: 0.091, blue: 0.103)
     static let surface2 = Color(red: 0.102, green: 0.112, blue: 0.124)
@@ -230,6 +230,7 @@ private enum ConsoleModal: Identifiable {
 private enum ConsolePage: String, CaseIterable, Identifiable {
     case mixer
     case mapping
+    case focus
 
     var id: String { rawValue }
 
@@ -237,6 +238,7 @@ private enum ConsolePage: String, CaseIterable, Identifiable {
         switch self {
         case .mixer: L10n.text("音频", "Audio")
         case .mapping: L10n.text("按键映射", "Key Mapping")
+        case .focus: L10n.text("应用聚焦", "App Focus")
         }
     }
 
@@ -244,6 +246,7 @@ private enum ConsolePage: String, CaseIterable, Identifiable {
         switch self {
         case .mixer: "slider.horizontal.3"
         case .mapping: "keyboard"
+        case .focus: "scope"
         }
     }
 }
@@ -539,17 +542,25 @@ private struct StudioMixerView: View {
         VStack(spacing: 0) {
             header
                 .frame(height: 68)
-            if model.selectedPage == .mixer {
+            switch model.selectedPage {
+            case .mixer:
                 Spacer().frame(height: 15)
                 mixer
                     .frame(height: 288)
                 Spacer().frame(height: 17)
                 statusPanel
                     .frame(height: 230)
-            } else {
+            case .mapping:
                 Spacer().frame(height: 15)
                 KeyMappingView(model: model)
                     .frame(height: 535)
+            case .focus:
+                Spacer().frame(height: 15)
+                InputFocusSettingsView(
+                    accessibilityGranted: model.accessibilityGranted,
+                    onOpenAccessibilityGuide: { model.activeModal = .permission(.accessibility) }
+                )
+                .frame(height: 535)
             }
         }
         .padding(20)
@@ -594,7 +605,7 @@ private struct StudioMixerView: View {
                     .foregroundStyle(ConsoleTheme.secondary)
             }
             ConsolePageSelector(selection: $model.selectedPage)
-                .frame(width: 202)
+                .frame(width: 288)
             Spacer()
             HStack(spacing: 7) {
                 Circle()
@@ -1053,6 +1064,7 @@ private struct DeviceSelectionRow: View {
 private struct MappingRow: View {
     @ObservedObject private var mappings = RemoteMappingStore.shared
     @State private var showRecorder = false
+    @State private var showAppPicker = false
     let remote: SupportedRemoteID
     let button: RemoteButtonDefinition
     let enabled: Bool
@@ -1084,6 +1096,8 @@ private struct MappingRow: View {
                             set: { target in
                                 if target == .custom {
                                     showRecorder = true
+                                } else if target == .openApp {
+                                    showAppPicker = true
                                 } else {
                                     mappings.setTarget(target, for: button, remote: remote)
                                 }
@@ -1091,10 +1105,7 @@ private struct MappingRow: View {
                         )
                     ) {
                         ForEach(RemoteMappingTarget.allCases.filter { $0 != .doubaoVoice }) { target in
-                            Text(target == .custom
-                                ? customMenuTitle
-                                : target.title
-                            ).tag(target)
+                            Text(menuTitle(for: target)).tag(target)
                         }
                     }
                     .labelsHidden()
@@ -1106,6 +1117,13 @@ private struct MappingRow: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(ConsoleTheme.green)
                         .help(L10n.text("重新录制按键", "Record again"))
+                    } else if mappings.target(for: button, remote: remote) == .openApp {
+                        Button { showAppPicker = true } label: {
+                            Image(systemName: "app.badge")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(ConsoleTheme.green)
+                        .help(L10n.text("重新选择应用", "Choose app again"))
                     }
                 }
             }
@@ -1129,6 +1147,29 @@ private struct MappingRow: View {
                 }
             )
         }
+        .sheet(isPresented: $showAppPicker) {
+            AppLaunchPickerView(
+                buttonTitle: button.title,
+                existingConfig: mappings.appLaunchConfig(for: button, remote: remote),
+                onCancel: { showAppPicker = false },
+                onSave: { config in
+                    mappings.setAppLaunchConfig(
+                        config,
+                        for: button,
+                        remote: remote
+                    )
+                    showAppPicker = false
+                }
+            )
+        }
+    }
+
+    private func menuTitle(for target: RemoteMappingTarget) -> String {
+        switch target {
+        case .custom: customMenuTitle
+        case .openApp: openAppMenuTitle
+        default: target.title
+        }
     }
 
     /// 「自定义」菜单项标题：已录制显示「自定义（当前：⇧⌘K）」，未录制显示「自定义…」。
@@ -1142,6 +1183,16 @@ private struct MappingRow: View {
             )
         }
         return L10n.text("自定义…", "Custom…")
+    }
+
+    private var openAppMenuTitle: String {
+        if let config = mappings.appLaunchConfig(for: button, remote: remote) {
+            return L10n.text(
+                "打开应用（\(config.name)）",
+                "Open App (\(config.name))"
+            )
+        }
+        return L10n.text("打开指定应用…", "Open App…")
     }
 }
 
@@ -1535,7 +1586,7 @@ private struct MeterView: View {
     }
 }
 
-private enum StatusTone { case good, warning, error }
+enum StatusTone { case good, warning, error }
 
 private struct StatusPill: View {
     let title: String
@@ -1801,9 +1852,9 @@ private struct GuideScreenshot: View {
 
 }
 
-private enum ConsoleButtonTone { case neutral, good, warning, error }
+enum ConsoleButtonTone { case neutral, good, warning, error }
 
-private struct ConsoleButtonStyle: ButtonStyle {
+struct ConsoleButtonStyle: ButtonStyle {
     let tone: ConsoleButtonTone
     var compact = false
     var consoleSized = false
@@ -1877,7 +1928,7 @@ private struct ConsoleButtonStyle: ButtonStyle {
     }
 }
 
-private func panelBackground(_ color: Color, radius: CGFloat) -> some View {
+func panelBackground(_ color: Color, radius: CGFloat) -> some View {
     RoundedRectangle(cornerRadius: radius)
         .fill(color)
         .overlay(RoundedRectangle(cornerRadius: radius).stroke(ConsoleTheme.line, lineWidth: 1))

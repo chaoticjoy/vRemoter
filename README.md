@@ -2,9 +2,15 @@
 
 把蓝牙语音遥控器变成 Mac 上的语音输入和按键控制器：按遥控器语音键，豆包输入法或微信输入法开始语音识别；对着遥控器说话，文字出现在当前窗口。遥控器其他按键可以映射成方向键、快捷键、锁屏、切换应用等操作。
 
-本项目基于 [VincentKingHsu/vRemoter](https://github.com/VincentKingHsu/vRemoter)（MIT 协议）v1.2.3，由社区独立维护，**不再同步原项目的更新**，与原作者无关。
+本项目基于 [ccc333cn/vRemoter](https://github.com/ccc333cn/vRemoter)（原自 [VincentKingHsu/vRemoter](https://github.com/VincentKingHsu/vRemoter)，MIT 协议）继续独立维护。
 
-当前版本：`1.3.2`
+当前版本：`1.4.0`
+
+## 新增特性（相对上游 v1.3.2）
+
+- **应用切换与输入框自动聚焦**：控制台新增「应用聚焦」页，支持添加需要自动聚焦的桌面应用（如 Antigravity IDE、微信、各类 AI 客户端等）。切回目标应用时自动把输入焦点拉回输入框（即使此前焦点在代码编辑区，也可拉回聊天框；同时避开搜索框/重命名/弹窗）。
+- **打开指定应用 / 一键聚焦输入框**：按键映射新增「打开指定应用…」与「聚焦当前输入框」两种动作，既能一键启动应用并切入输入框，也能随时把当前前台应用的焦点拉回输入框；同时支持 30 秒交互式「指定输入框」保存结构指纹。
+- **自动检查更新与 CI 自动发布**：更新检查指向 `chaoticjoy/vRemoter` 的 [Releases](https://github.com/chaoticjoy/vRemoter/releases)，并配置 GitHub Actions 在打标签时自动完成自测、打包 `.pkg` / `.dmg` 并上传 Release 产物。
 
 ## 和原版的区别
 
@@ -15,7 +21,7 @@
   - Chromecast 遥控器快速轻点语音键时，遥控器麦克风有时没打开，现在会自动重开。
   - 启用按键映射时系统拒绝独占设备，现在会退回共享模式，按键照样能用。
   - 遥控器语音连接断开后会自动重连，不再一直停在“正在连接语音服务”。
-- **更新来源**：App 内的“检查更新”读取本仓库的 [Releases](https://github.com/ccc333cn/vRemoter/releases)。
+- **更新来源**：App 内的“检查更新”读取本仓库的 [Releases](https://github.com/chaoticjoy/vRemoter/releases)。
 - **没有统计和打赏**：去掉了使用统计上报、打赏和购买入口。
 - 原版 1.2.3 的功能全部保留：锁屏、睡眠、切换应用三种映射动作，双路麦克风开关等。
 
@@ -29,7 +35,7 @@
 
 ## 安装
 
-1. 到 [Releases](https://github.com/ccc333cn/vRemoter/releases) 下载最新的 `.pkg`。
+1. 到 [Releases](https://github.com/chaoticjoy/vRemoter/releases) 下载最新的 `.pkg`（仅升级 App 也可下载 `.dmg`）。
    - 只支持 **Apple 芯片（M 系列）** 的 Mac，macOS 12 或更高版本。
 2. 安装包**没有签名**，双击会被 macOS 拦下：到“系统设置 → 隐私与安全性”，点“仍要打开”。
 3. 安装时会重启系统音频服务，正在播放的声音会断一下。

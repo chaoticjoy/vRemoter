@@ -193,6 +193,9 @@ enum VoiceSessionSelfTest {
         testCompatibilityKeyboardToggle(checks)
         testCompatibilityKeyboardHold(checks)
         testCompatibilityInputMethodNotRunning(checks)
+        InputFocusSelfTest.run { condition, message in
+            checks.expect(condition(), message)
+        }
         emit("[SELF-TEST] completed failures=\(checks.failures)")
         return checks.failures == 0
     }

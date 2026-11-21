@@ -47,7 +47,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let x6SearchSuppressor = X6SearchSuppressor()
     private let doubaoAudioState = DoubaoAudioStateMonitor()
     private lazy var x6Session = X6SessionCoordinator(
-        doubaoState: doubaoAudioState
+        doubaoState: doubaoAudioState,
+        sendTrigger: { open in
+            if open {
+                InputFocusCoordinator.shared.ensureFocusedForVoiceIfNeeded()
+                Key.beginRecognition()
+            } else {
+                Key.endRecognition()
+            }
+        }
     )
     private let debugWindow = DebugWindowController()
     private let updateWindow = UpdateWindowController()
@@ -269,6 +277,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         print("[VOICE-IME] using \(voiceInputMethod.title)")
         SystemInputRoute.apply(for: voiceInputMethod)
         x6Session.start()
+        InputFocusCoordinator.shared.start()
         x6SearchSuppressor.start()
         x6.start()
         x6BLE.start()
@@ -730,6 +739,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         x6.stop()
         chromecastHID.stop()
         x6SearchSuppressor.stop()
+        InputFocusCoordinator.shared.stop()
         x6Session.stop()
         x6BLE.stop()
         chromecastBLE.stop()
