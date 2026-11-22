@@ -18,9 +18,9 @@ public readonly record struct WudfTapAlpcEntry(
 /// </summary>
 public static class WudfAlpcStubEmitter
 {
-    public const int SlotSize = 128;
-    public const int SlotCount = 32;
-    public const int MaxCapturedPayload = 112;
+    public const int SlotSize = 512;
+    public const int SlotCount = 16;
+    public const int MaxCapturedPayload = 496;
 
     public static void EmitAlpcStub(
         byte[] page,
@@ -131,15 +131,17 @@ public static class WudfAlpcStubEmitter
         Emit(0x89, 0xC1);                   // mov ecx, eax
         Emit(0x85, 0xC9);                   // test ecx, ecx
         int jzSkip3 = EmitRel32Placeholder(0x0F, 0x84);
-        Emit(0x83, 0xF9, 0x70);             // cmp ecx, 112
+        Emit(0x81, 0xF9);
+        EmitU32((uint)MaxCapturedPayload);  // cmp ecx, 496
         Emit(0x76, 0x05);                   // jbe +5
-        Emit(0xB9, 0x70, 0x00, 0x00, 0x00); // mov ecx, 112
+        Emit(0xB9);
+        EmitU32((uint)MaxCapturedPayload);  // mov ecx, 496
 
-        // r10 = offTraceBuffer + ((xadd(offWriteSeq, 1) & 31) << 7)
+        // r10 = offTraceBuffer + ((xadd(offWriteSeq, 1) & 15) << 9)
         Emit(0x41, 0xBA, 0x01, 0x00, 0x00, 0x00); // mov r10d, 1
         EmitRipRel(offWriteSeq, 0xF0, 0x44, 0x0F, 0xC1, 0x15);
-        Emit(0x41, 0x83, 0xE2, 0x1F);       // and r10d, 31
-        Emit(0x49, 0xC1, 0xE2, 0x07);       // shl r10, 7
+        Emit(0x41, 0x83, 0xE2, 0x0F);       // and r10d, 15
+        Emit(0x49, 0xC1, 0xE2, 0x09);       // shl r10, 9 (* 512)
         EmitRipRel(offTraceBuffer, 0x4C, 0x8D, 0x1D);
         Emit(0x4D, 0x01, 0xDA);             // add r10, r11
 

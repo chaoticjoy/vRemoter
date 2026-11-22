@@ -120,12 +120,15 @@ internal static class WudfHostTraceReporter
             state.LastAlpcTraceSeq++;
             var entry = WudfAlpcStubEmitter.DecodeAlpcEntry(slotBuf);
             string hex = entry.Payload.Length > 0 ? BitConverter.ToString(entry.Payload) : string.Empty;
-            string dedupKey = $"{entry.Direction}:{entry.PortHandleLo:X4}:{entry.DataLength}:{hex}";
+            // Ignore per-message CallId/MsgId prefix (first 24 bytes) when deduplicating large RPC packets
+            // so repeating timer/idle headers collapse cleanly while any argument change always logs.
+            string bodyHex = entry.Payload.Length > 24 ? BitConverter.ToString(entry.Payload, 24) : hex;
+            string dedupKey = $"{entry.Direction}:{entry.PortHandleLo:X4}:{entry.DataLength}:{bodyHex}";
             int seenCount = state.AlpcSeenCounts.TryGetValue(dedupKey, out int prev) ? prev + 1 : 1;
             state.AlpcSeenCounts[dedupKey] = seenCount;
             if (seenCount > 3)
             {
-                continue; // Collapse repeating idle ALPC keepalives after first 3 occurrences
+                continue;
             }
 
             state.AlpcLogCount++;
