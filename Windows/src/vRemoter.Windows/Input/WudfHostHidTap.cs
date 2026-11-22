@@ -20,6 +20,7 @@ public sealed class WudfHostHidTap : IDisposable
         public IntPtr PageAddress { get; } = pageAddress;
         public string SourceNode { get; } = sourceNode;
         public uint LastReadSeq { get; set; } = initialSeq;
+        public ulong LastLoggedTotals { get; set; }
         public ulong LastLoggedIoctls { get; set; }
         public DateTimeOffset LastDiagLogAt { get; set; } = DateTimeOffset.MinValue;
 
@@ -206,9 +207,11 @@ public sealed class WudfHostHidTap : IDisposable
                         }
                     }
 
-                    if (diag.IoctlCalls != host.LastLoggedIoctls &&
-                        now - host.LastDiagLogAt >= TimeSpan.FromSeconds(15))
+                    if ((diag.IoctlCalls != host.LastLoggedIoctls ||
+                         (diag.TotalCalls != host.LastLoggedTotals && host.LastLoggedTotals == 0)) &&
+                        now - host.LastDiagLogAt >= TimeSpan.FromSeconds(10))
                     {
+                        host.LastLoggedTotals = diag.TotalCalls;
                         host.LastLoggedIoctls = diag.IoctlCalls;
                         host.LastDiagLogAt = now;
                         LogService.Write($"[{_logTag}] WUDF stats pid={host.Pid} total={diag.TotalCalls} ioctl80018483={diag.IoctlCalls} reports3={diag.Report3Calls} lastLen={diag.LastOutLen} lastStatus=0x{diag.LastNtStatus:X8}");
@@ -258,6 +261,12 @@ public sealed class WudfHostHidTap : IDisposable
         IntPtr ntAddr = hModNtdll != IntPtr.Zero ? GetProcAddress(hModNtdll, "NtDeviceIoControlFile") : IntPtr.Zero;
         if (ntAddr == IntPtr.Zero) return;
 
+        // Read clean syscall ID from our own process's ntdll!NtDeviceIoControlFile in case
+        // the target process already holds an older hooked prologue.
+        byte[] localPrologue = new byte[16];
+        System.Runtime.InteropServices.Marshal.Copy(ntAddr, localPrologue, 0, localPrologue.Length);
+        _ = WudfHidTapStubBuilder.TryExtractSyscallId(localPrologue, out uint localSyscallId);
+
         IntPtr hProc = OpenProcess(ProcessAccessFlags, bInheritHandle: false, pid);
         if (hProc == IntPtr.Zero) return;
 
@@ -270,7 +279,9 @@ public sealed class WudfHostHidTap : IDisposable
                 return;
             }
 
-            // Case A: Already hooked by a previous vRemoter instance -> reuse existing 4KB ring-buffer page
+            uint syscallId = localSyscallId;
+
+            // Case A: Already hooked -> reuse only if it matches current v2 MagicSignature; otherwise upgrade atomically.
             if (prologue[0] == 0xE9)
             {
                 int rel32 = BinaryPrimitives.ReadInt32LittleEndian(prologue.AsSpan(1, 4));
@@ -288,13 +299,19 @@ public sealed class WudfHostHidTap : IDisposable
                         LogService.Write($"[{_logTag}] WUDF attached (reused) pid={pid} page=0x{existingPage.ToInt64():X} src={sourceNode}");
                         return;
                     }
+
+                    if (syscallId == 0 && diag.SyscallId != 0)
+                    {
+                        syscallId = diag.SyscallId;
+                    }
                 }
-                _ = CloseHandle(hProc);
-                return;
+            }
+            else if (!WudfHidTapStubBuilder.TryExtractSyscallId(prologue, out syscallId) && localSyscallId != 0)
+            {
+                syscallId = localSyscallId;
             }
 
-            // Case B: Fresh unhooked ntdll!NtDeviceIoControlFile (4C 8B D1 B8 <syscallId>)
-            if (!WudfHidTapStubBuilder.TryExtractSyscallId(prologue, out uint syscallId))
+            if (syscallId == 0)
             {
                 _ = CloseHandle(hProc);
                 return;
@@ -336,7 +353,7 @@ public sealed class WudfHostHidTap : IDisposable
 
             var host = new AttachedHost(pid, hProc, pageAddr, 0, sourceNode);
             lock (_sync) { _hosts[pid] = host; }
-            LogService.Write($"[{_logTag}] WUDF attached pid={pid} syscall=0x{syscallId:X} page=0x{pageAddr.ToInt64():X} src={sourceNode}");
+            LogService.Write($"[{_logTag}] WUDF attached{(prologue[0] == 0xE9 ? " (upgraded)" : string.Empty)} pid={pid} syscall=0x{syscallId:X} page=0x{pageAddr.ToInt64():X} src={sourceNode}");
         }
         catch (Exception ex)
         {

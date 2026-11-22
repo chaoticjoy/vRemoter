@@ -196,3 +196,4 @@ internal static class WudfHostNativeInterop
     [DllImport("advapi32.dll", SetLastError = true)]
     internal static extern bool AdjustTokenPrivileges(IntPtr tokenHandle, bool bDisableAllPrivileges, ref TOKEN_PRIVILEGES newState, uint bufferLength, IntPtr previousState, IntPtr returnLength);
 }
+

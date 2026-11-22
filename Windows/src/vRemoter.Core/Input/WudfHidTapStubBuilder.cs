@@ -30,24 +30,33 @@ public static class WudfHidTapStubBuilder
 {
     public const int PageSize = 4096;
     public const uint ReadIoctlCode = 0x80018483;
-    public const ulong MagicSignature = 0x464455574D455256UL; // "VREMWUDF"
+    public const ulong MagicSignature = 0x324644574D455256UL; // "VREMWDF2"
 
     public const int OffCode = 0x000;
-    public const int OffMagic = 0x100;
-    public const int OffTotalCalls = 0x108;
-    public const int OffIoctlCalls = 0x110;
-    public const int OffReport3Calls = 0x118;
-    public const int OffWriteSeq = 0x120;
-    public const int OffCommittedSeq = 0x124;
-    public const int OffLastOutLen = 0x128;
-    public const int OffSuppressEnabled = 0x12C;
-    public const int OffLastNtStatus = 0x130;
-    public const int OffSyscallId = 0x134;
-    public const int OffOriginalBytes = 0x138;
-    public const int OffRingBuffer = 0x200;
+    public const int OffMagic = 0x200;
+    public const int OffTotalCalls = 0x208;
+    public const int OffIoctlCalls = 0x210;
+    public const int OffReport3Calls = 0x218;
+    public const int OffWriteSeq = 0x220;
+    public const int OffCommittedSeq = 0x224;
+    public const int OffLastOutLen = 0x228;
+    public const int OffSuppressEnabled = 0x22C;
+    public const int OffLastNtStatus = 0x230;
+    public const int OffSyscallId = 0x234;
+    public const int OffOriginalBytes = 0x238;
+    public const int OffRingBuffer = 0x300;
     public const int RingCapacity = 256;
 
     public static byte[] BuildHookPage(uint syscallId, bool suppressEnabled, ReadOnlySpan<byte> originalEntryBytes)
+    {
+        return BuildHookPage(syscallId, suppressEnabled, originalEntryBytes, out _);
+    }
+
+    public static byte[] BuildHookPage(
+        uint syscallId,
+        bool suppressEnabled,
+        ReadOnlySpan<byte> originalEntryBytes,
+        out int retOffset)
     {
         byte[] page = new byte[PageSize];
         int pos = OffCode;
@@ -74,11 +83,13 @@ public static class WudfHidTapStubBuilder
             pos += 4;
         }
 
-        void EmitJccToRet(byte jccOpcode)
+        // Near conditional jump rel32 (0F 84 / 0F 85): immune to 127-byte rel8 overflow.
+        void EmitJccToRet(byte jccNearSecondByte)
         {
-            page[pos++] = jccOpcode;
+            page[pos++] = 0x0F;
+            page[pos++] = jccNearSecondByte;
             retJumps.Add(pos);
-            page[pos++] = 0;
+            pos += 4;
         }
 
         // 1. lock inc qword ptr [rip + OffTotalCalls]
@@ -93,7 +104,7 @@ public static class WudfHidTapStubBuilder
         // 3. cmp dword ptr [rsp + 0x30], 0x80018483 (IoControlCode)
         Emit(0x81, 0x7C, 0x24, 0x30);
         EmitU32(ReadIoctlCode);
-        EmitJccToRet(0x75); // jne .ret
+        EmitJccToRet(0x85); // jne .ret
 
         // 4. Record IOCTL hit, NTSTATUS, and OutputBufferLength ([rsp + 0x50])
         EmitRipRel(OffIoctlCalls, 0xF0, 0x48, 0xFF, 0x05);
@@ -102,15 +113,15 @@ public static class WudfHidTapStubBuilder
         EmitRipRel(OffLastOutLen, 0x89, 0x0D);
 
         // 5. Require eax == 0 (STATUS_SUCCESS) and ecx == 3 (3-byte Consumer Control report)
-        Emit(0x85, 0xC0); // test eax, eax
-        EmitJccToRet(0x75); // jnz .ret
+        Emit(0x85, 0xC0);       // test eax, eax
+        EmitJccToRet(0x85);     // jnz .ret
         Emit(0x83, 0xF9, 0x03); // cmp ecx, 3
-        EmitJccToRet(0x75); // jne .ret
+        EmitJccToRet(0x85);     // jne .ret
 
         // 6. r8 = OutputBuffer ([rsp + 0x48])
         Emit(0x4C, 0x8B, 0x44, 0x24, 0x48);
         Emit(0x4D, 0x85, 0xC0); // test r8, r8
-        EmitJccToRet(0x74); // jz .ret
+        EmitJccToRet(0x84);     // jz .ret
 
         // 7. Read 3 bytes: r9d = byte0 | (byte1 << 8) | (byte2 << 16)
         Emit(0x45, 0x0F, 0xB7, 0x48, 0x01); // movzx r9d, word ptr [r8 + 1]
@@ -139,25 +150,31 @@ public static class WudfHidTapStubBuilder
 
         // 12. If reportId == 0x02 && usage != 0 && SuppressEnabled != 0, zero usage bytes in-place
         Emit(0x41, 0x80, 0x38, 0x02);       // cmp byte ptr [r8], 0x02
-        EmitJccToRet(0x75);                 // jne .ret
+        EmitJccToRet(0x85);                 // jne .ret
         Emit(0x41, 0x0F, 0xB7, 0x48, 0x01); // movzx ecx, word ptr [r8 + 1]
         Emit(0x85, 0xC9);                   // test ecx, ecx
-        EmitJccToRet(0x74);                 // jz .ret
+        EmitJccToRet(0x84);                 // jz .ret
         EmitRipRel(OffSuppressEnabled, 0x8B, 0x0D); // mov ecx, dword ptr [rip + OffSuppressEnabled]
         Emit(0x85, 0xC9);                   // test ecx, ecx
-        EmitJccToRet(0x74);                 // jz .ret
+        EmitJccToRet(0x84);                 // jz .ret
         Emit(0x41, 0xC6, 0x40, 0x01, 0x00); // mov byte ptr [r8 + 1], 0
         Emit(0x41, 0xC6, 0x40, 0x02, 0x00); // mov byte ptr [r8 + 2], 0
 
-        int retOffset = pos;
+        retOffset = pos;
         Emit(0xC3); // ret
+
+        if (pos > OffMagic)
+        {
+            throw new InvalidOperationException($"Hook stub overflowed data header region: {pos} > {OffMagic}");
+        }
 
         foreach (int patchPos in retJumps)
         {
-            page[patchPos] = checked((byte)(retOffset - (patchPos + 1)));
+            int disp32 = retOffset - (patchPos + 4);
+            BinaryPrimitives.WriteInt32LittleEndian(page.AsSpan(patchPos, 4), disp32);
         }
 
-        // Populate data header at 0x100
+        // Populate data header at OffMagic (0x200)
         BinaryPrimitives.WriteUInt64LittleEndian(page.AsSpan(OffMagic, 8), MagicSignature);
         BinaryPrimitives.WriteUInt32LittleEndian(page.AsSpan(OffSuppressEnabled, 4), suppressEnabled ? 1U : 0U);
         BinaryPrimitives.WriteUInt32LittleEndian(page.AsSpan(OffSyscallId, 4), syscallId);
@@ -197,19 +214,19 @@ public static class WudfHidTapStubBuilder
         return patch;
     }
 
-    public static WudfTapDiagnostics ReadDiagnostics(ReadOnlySpan<byte> headerFrom0x100)
+    public static WudfTapDiagnostics ReadDiagnostics(ReadOnlySpan<byte> headerFrom0x200)
     {
         return new WudfTapDiagnostics(
-            BinaryPrimitives.ReadUInt64LittleEndian(headerFrom0x100.Slice(0x00, 8)),
-            BinaryPrimitives.ReadUInt64LittleEndian(headerFrom0x100.Slice(0x08, 8)),
-            BinaryPrimitives.ReadUInt64LittleEndian(headerFrom0x100.Slice(0x10, 8)),
-            BinaryPrimitives.ReadUInt64LittleEndian(headerFrom0x100.Slice(0x18, 8)),
-            BinaryPrimitives.ReadUInt32LittleEndian(headerFrom0x100.Slice(0x20, 4)),
-            BinaryPrimitives.ReadUInt32LittleEndian(headerFrom0x100.Slice(0x24, 4)),
-            BinaryPrimitives.ReadUInt32LittleEndian(headerFrom0x100.Slice(0x28, 4)),
-            BinaryPrimitives.ReadUInt32LittleEndian(headerFrom0x100.Slice(0x2C, 4)),
-            BinaryPrimitives.ReadUInt32LittleEndian(headerFrom0x100.Slice(0x30, 4)),
-            BinaryPrimitives.ReadUInt32LittleEndian(headerFrom0x100.Slice(0x34, 4)));
+            BinaryPrimitives.ReadUInt64LittleEndian(headerFrom0x200.Slice(0x00, 8)),
+            BinaryPrimitives.ReadUInt64LittleEndian(headerFrom0x200.Slice(0x08, 8)),
+            BinaryPrimitives.ReadUInt64LittleEndian(headerFrom0x200.Slice(0x10, 8)),
+            BinaryPrimitives.ReadUInt64LittleEndian(headerFrom0x200.Slice(0x18, 8)),
+            BinaryPrimitives.ReadUInt32LittleEndian(headerFrom0x200.Slice(0x20, 4)),
+            BinaryPrimitives.ReadUInt32LittleEndian(headerFrom0x200.Slice(0x24, 4)),
+            BinaryPrimitives.ReadUInt32LittleEndian(headerFrom0x200.Slice(0x28, 4)),
+            BinaryPrimitives.ReadUInt32LittleEndian(headerFrom0x200.Slice(0x2C, 4)),
+            BinaryPrimitives.ReadUInt32LittleEndian(headerFrom0x200.Slice(0x30, 4)),
+            BinaryPrimitives.ReadUInt32LittleEndian(headerFrom0x200.Slice(0x34, 4)));
     }
 
     public static WudfTapReport DecodeRingEntry(uint packedEntry)

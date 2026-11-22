@@ -207,7 +207,6 @@ public sealed class AppController : IDisposable
         _x6Hid.LongPressEnded += _session.RemoteHidLongPressEnded;
 
         _chromecastHid.ConnectionChanged += connected => { _chromecastHidConnected = connected; UpdateStatus(); };
-        _chromecastHid.ActivityObserved += _chromecastBle.PokeReconnect;
         _chromecastBle.HidsConnectionChanged += _chromecastHid.OnBleHidsConnectionChanged;
         _chromecastBle.HidsReportReceived += _chromecastHid.OnBleHidsReport;
 
@@ -360,11 +359,9 @@ public sealed class AppController : IDisposable
                 ? L10n.Text("遥控器录音中", "Remote recording")
                 : (anyHid && anyBle)
                     ? L10n.Text("已就绪", "Ready")
-                    : anyBle
-                        ? L10n.Text("已就绪", "Ready")
-                        : anyHid
-                            ? L10n.Text("正在连接语音服务", "Connecting voice service")
-                            : L10n.Text("等待遥控器", "Waiting for remote");
+                    : (anyHid || anyBle)
+                        ? L10n.Text("正在连接语音服务", "Connecting voice service")
+                        : L10n.Text("等待遥控器", "Waiting for remote");
 
         _vm.Status = status;
         _tray.UpdateStatus(status);

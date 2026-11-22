@@ -123,8 +123,26 @@ public sealed class HidInputUpgradeTests
         Assert.True(WudfHidTapStubBuilder.TryExtractSyscallId(prologue, out uint syscallId));
         Assert.Equal(0x0007U, syscallId);
 
-        byte[] page = WudfHidTapStubBuilder.BuildHookPage(syscallId, suppressEnabled: true, prologue);
+        byte[] page = WudfHidTapStubBuilder.BuildHookPage(syscallId, suppressEnabled: true, prologue, out int retOffset);
         Assert.Equal(WudfHidTapStubBuilder.PageSize, page.Length);
+        Assert.InRange(retOffset, 150, WudfHidTapStubBuilder.OffMagic - 1);
+        Assert.Equal(0xC3, page[retOffset]);
+
+        // Every rel32 conditional jump (0F 84 / 0F 85) inside the stub must target retOffset exactly.
+        int jumpCount = 0;
+        for (int i = 0; i <= retOffset - 6; i++)
+        {
+            if (page[i] == 0x0F && (page[i + 1] == 0x84 || page[i + 1] == 0x85))
+            {
+                int disp = BitConverter.ToInt32(page, i + 2);
+                int target = i + 6 + disp;
+                if (target == retOffset)
+                {
+                    jumpCount++;
+                }
+            }
+        }
+        Assert.Equal(7, jumpCount);
 
         var diag = WudfHidTapStubBuilder.ReadDiagnostics(page.AsSpan(WudfHidTapStubBuilder.OffMagic, 0x40));
         Assert.Equal(WudfHidTapStubBuilder.MagicSignature, diag.Magic);
