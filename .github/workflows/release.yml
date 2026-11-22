@@ -37,8 +37,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve Version, Tag & Target Platforms
+      - name: Resolve Version, Tag & Ensure Release Exists
         id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(tr -d '[:space:]' < VERSION)
           if [[ -n "${{ github.event.inputs.tag }}" ]]; then
@@ -56,6 +58,14 @@ jobs:
             PLAT="${{ github.event.inputs.platforms }}"
             [[ "$PLAT" == "all" || "$PLAT" == "macos" ]] && RUN_MAC="true" || RUN_MAC="false"
             [[ "$PLAT" == "all" || "$PLAT" == "windows" ]] && RUN_WIN="true" || RUN_WIN="false"
+          fi
+
+          if ! gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --repo "${{ github.repository }}" \
+              --target "${{ github.sha }}" \
+              --title "vRemoter ${VERSION}" \
+              --generate-notes
           fi
 
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
@@ -87,10 +97,13 @@ jobs:
           pkgutil --expand-full /tmp/upstream.pkg /tmp/upstream-expanded
           test -d "/tmp/upstream-expanded/Payload/Library/Audio/Plug-Ins/HAL/vRemoteDriver.driver"
 
-      - name: Build PKG and DMG
+      - name: Build & Upload macOS Release Assets Directly
         id: pkg
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${{ needs.resolve-meta.outputs.version }}"
+          TAG="${{ needs.resolve-meta.outputs.tag }}"
           export VREMOTER_DRIVER="/tmp/upstream-expanded/Payload/Library/Audio/Plug-Ins/HAL/vRemoteDriver.driver"
           Scripts/build-pkg.sh
           Scripts/build-dmg.sh
@@ -103,12 +116,7 @@ jobs:
           echo "pkg_sha=$(shasum -a 256 "$PKG_OUT" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
           echo "dmg_sha=$(shasum -a 256 "$DMG_OUT" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos-dist
-          path: |
-            dist/vRemoter-Community-${{ needs.resolve-meta.outputs.version }}-AppleSilicon.pkg
-            dist/vRemoter-Community-${{ needs.resolve-meta.outputs.version }}-AppleSilicon.dmg
+          gh release upload "$TAG" "$PKG_OUT" "$DMG_OUT" --repo "${{ github.repository }}" --clobber
 
   build-windows:
     needs: resolve-meta
@@ -128,11 +136,14 @@ jobs:
       - name: Run Windows Core Tests
         run: dotnet test Windows/vRemoter.sln -c Release
 
-      - name: Publish Single-File & Build Installer
+      - name: Publish Single-File, Build Installer & Upload Release Assets Directly
         id: winpkg
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $ver = "${{ needs.resolve-meta.outputs.version }}"
+          $tag = "${{ needs.resolve-meta.outputs.tag }}"
           dotnet publish Windows/src/vRemoter.Windows/vRemoter.Windows.csproj `
             -c Release -r win-x64 --self-contained true `
             -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
@@ -149,12 +160,7 @@ jobs:
           echo "exe_sha=$exeSha" >> $env:GITHUB_OUTPUT
           echo "zip_sha=$zipSha" >> $env:GITHUB_OUTPUT
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-dist
-          path: |
-            Windows/dist/vRemoter-Community-${{ needs.resolve-meta.outputs.version }}-Windows-x64-Setup.exe
-            Windows/dist/vRemoter-Community-${{ needs.resolve-meta.outputs.version }}-Windows-x64-Portable.zip
+          gh release upload $tag $exeOut $zipOut --repo "${{ github.repository }}" --clobber
 
   publish-release:
     needs: [resolve-meta, build-macos, build-windows]
@@ -166,12 +172,7 @@ jobs:
       (needs.build-macos.result == 'success' || needs.build-windows.result == 'success')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Prepare Release Notes
-        id: notes
+      - name: Update Release Notes & SHA-256 Checksums
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.resolve-meta.outputs.version }}
@@ -185,11 +186,6 @@ jobs:
         run: |
           EXISTING_BODY=$(gh release view "$TAG" --repo "${{ github.repository }}" --json body -q .body 2>/dev/null || true)
           export EXISTING_BODY
-          if [[ -n "$EXISTING_BODY" ]]; then
-            echo "generate_notes=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "generate_notes=true" >> "$GITHUB_OUTPUT"
-          fi
           python3 - <<'PY' > /tmp/release-notes.md
           import os, re
 
@@ -214,17 +210,28 @@ jobs:
               "- 首次使用需在主界面引导中一键安装 WHQL 签名虚拟声卡 **VB-Cable**。"
           )
 
-          if mac_built and win_built:
-              print("## 安装说明\n")
-              print(mac_section + "\n")
-              print(win_section + "\n")
-              print("### SHA-256")
-              print(f"- `vRemoter-Community-{ver}-AppleSilicon.pkg`: `{pkg_sha}`")
-              print(f"- `vRemoter-Community-{ver}-AppleSilicon.dmg`: `{dmg_sha}`")
-              print(f"- `vRemoter-Community-{ver}-Windows-x64-Setup.exe`: `{exe_sha}`")
-              print(f"- `vRemoter-Community-{ver}-Windows-x64-Portable.zip`: `{zip_sha}`")
+          if mac_built and win_built and "## 安装说明" not in existing:
+              header = (
+                  "## 安装说明\n\n"
+                  f"{mac_section}\n\n"
+                  f"{win_section}\n\n"
+                  "### SHA-256\n"
+                  f"- `vRemoter-Community-{ver}-AppleSilicon.pkg`: `{pkg_sha}`\n"
+                  f"- `vRemoter-Community-{ver}-AppleSilicon.dmg`: `{dmg_sha}`\n"
+                  f"- `vRemoter-Community-{ver}-Windows-x64-Setup.exe`: `{exe_sha}`\n"
+                  f"- `vRemoter-Community-{ver}-Windows-x64-Portable.zip`: `{zip_sha}`"
+              )
+              print(header + ("\n\n" + existing if existing else ""))
           elif existing:
               body = existing
+              if "## 安装说明" not in body:
+                  sections = ["## 安装说明\n"]
+                  if mac_built:
+                      sections.append(mac_section + "\n")
+                  if win_built:
+                      sections.append(win_section + "\n")
+                  sections.append("### SHA-256")
+                  body = "\n".join(sections) + "\n\n" + body
               if win_built:
                   if "### Windows 10 / 11 (x64)" not in body:
                       if "### SHA-256" in body:
@@ -268,11 +275,7 @@ jobs:
                   print(f"- `vRemoter-Community-{ver}-Windows-x64-Portable.zip`: `{zip_sha}`")
           PY
 
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.resolve-meta.outputs.tag }}
-          name: vRemoter ${{ needs.resolve-meta.outputs.version }}
-          body_path: /tmp/release-notes.md
-          generate_release_notes: ${{ steps.notes.outputs.generate_notes }}
-          files: artifacts/*/*
+          gh release edit "$TAG" \
+            --repo "${{ github.repository }}" \
+            --title "vRemoter ${VERSION}" \
+            --notes-file /tmp/release-notes.md

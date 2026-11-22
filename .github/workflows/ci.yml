@@ -50,7 +50,7 @@ jobs:
           while IFS= read -r file; do
             [[ -z "$file" ]] && continue
             case "$file" in
-              Windows/*|.github/workflows/ci.yml|.github/workflows/release.yml)
+              Windows/*|.github/workflows/ci.yml)
                 RUN_WIN="true"
                 ;;
               Sources/*|SelfTests/*|Scripts/*|Packaging/*|Package.swift)
