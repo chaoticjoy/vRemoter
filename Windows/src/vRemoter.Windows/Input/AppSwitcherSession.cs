@@ -178,11 +178,11 @@ public sealed class AppSwitcherSession : IDisposable
             if (len <= 0) return true;
 
             var sb = new StringBuilder(len + 1);
-            _ = GetWindowTextW(hwnd, sb, sb.Capacity);
+            GetWindowTextW(hwnd, sb, sb.Capacity);
             string title = sb.ToString();
             if (string.IsNullOrWhiteSpace(title)) return true;
 
-            _ = GetWindowThreadProcessId(hwnd, out uint pid);
+            GetWindowThreadProcessId(hwnd, out uint pid);
             if ((int)pid == selfPid) return true;
 
             string procName = string.Empty;

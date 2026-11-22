@@ -250,7 +250,7 @@ public sealed class WinUiaFocusBackend : IFocusSessionBackend<UiaNode>
         {
             using (SubtreeCacheRequest.Activate())
             {
-                var children = node.Element.FindAll(TreeScope.Children, Condition.TrueCondition);
+                var children = node.Element.FindAll(TreeScope.Children, System.Windows.Automation.Condition.TrueCondition);
                 var list = new List<UiaNode>(children.Count);
                 foreach (AutomationElement child in children)
                 {
