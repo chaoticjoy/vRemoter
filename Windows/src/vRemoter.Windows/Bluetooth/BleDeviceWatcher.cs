@@ -29,7 +29,13 @@ public sealed class BleDeviceWatcher : IDisposable
     private bool _started;
 
     public event Action<MatchedBleRemote>? ConnectedCandidateFound;
+    public event Action<MatchedBleRemote>? PairedCandidateFound;
     public event Action<string>? DeviceDisconnected;
+
+    public ulong SavedAddress
+    {
+        get { lock (_sync) return _savedAddress ?? 0; }
+    }
 
     public BleDeviceWatcher(string nameHint, string savedAddressFilename, string logTag)
     {
@@ -120,6 +126,14 @@ public sealed class BleDeviceWatcher : IDisposable
         }
     }
 
+    public IReadOnlyList<MatchedBleRemote> GetPairedCandidates()
+    {
+        lock (_sync)
+        {
+            return _known.Values.ToList();
+        }
+    }
+
     private void OnAdded(DeviceWatcher sender, DeviceInformation info)
     {
         ProcessDevice(info.Id, info.Name, info.Properties);
@@ -145,9 +159,13 @@ public sealed class BleDeviceWatcher : IDisposable
 
     private void OnEnumerationCompleted(DeviceWatcher sender, object args)
     {
-        foreach (var candidate in GetConnectedCandidates())
+        foreach (var candidate in GetPairedCandidates())
         {
-            ConnectedCandidateFound?.Invoke(candidate);
+            PairedCandidateFound?.Invoke(candidate);
+            if (candidate.IsConnected)
+            {
+                ConnectedCandidateFound?.Invoke(candidate);
+            }
         }
     }
 
@@ -162,6 +180,7 @@ public sealed class BleDeviceWatcher : IDisposable
         {
             _known[id] = entry;
         }
+        PairedCandidateFound?.Invoke(entry);
         if (isConnected)
         {
             ConnectedCandidateFound?.Invoke(entry);

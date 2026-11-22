@@ -8,9 +8,10 @@ namespace vRemoter.Windows.Input;
 /// <summary>
 /// Multi-pipeline input bridge for Google Chromecast Voice Remote (VID 0x18D1, PID 0x9450).
 /// Simultaneously accepts reports from:
-/// 1. Win32 / WinRT BLE GATT HIDS 0x1812 (0x2A4D Input Reports + 0x2A4B Report Map)
-/// 2. RawInputMonitor (WM_INPUT Keyboard + Consumer + RIDI_PREPARSEDDATA HidP_GetUsages)
-/// 3. HidCollectionReader (Overlapped ReadFile + HidP_GetUsagesEx / HidP_GetUsages)
+/// 1. WudfHostHidTap (native x64 IOCTL 0x80018483 3-byte [0x02, usage_lo, usage_hi] interceptor in WUDFHost.exe)
+/// 2. Win32 / WinRT BLE GATT HIDS 0x1812 (0x2A4D Input Reports + 0x2A4B Report Map)
+/// 3. RawInputMonitor (WM_INPUT Keyboard + Consumer + RIDI_PREPARSEDDATA HidP_GetUsages)
+/// 4. HidCollectionReader (Overlapped ReadFile + HidP_GetUsagesEx / HidP_GetUsages)
 /// Deduplicates at the button-state level so no pipeline blocks another.
 /// </summary>
 public sealed class ChromecastHidBridge : IDisposable
@@ -19,6 +20,7 @@ public sealed class ChromecastHidBridge : IDisposable
     public const ushort ProductId = 0x9450;
 
     private readonly HidCollectionReader _reader;
+    private readonly WudfHostHidTap _wudfTap;
     private readonly RemoteMappingStore _mappings;
     private readonly LowLevelKeyboardGuard _keyboardGuard;
     private readonly Action<RemoteMappingTarget, RemoteCustomShortcut?, RemoteAppLaunchConfig?, bool> _dispatchAction;
@@ -30,7 +32,8 @@ public sealed class ChromecastHidBridge : IDisposable
     private string? _lastButtonId;
 
     public event Action<bool>? ConnectionChanged;
-    public bool IsConnected => _reader.IsConnected || _bleHidsConnected;
+    public event Action? ActivityObserved;
+    public bool IsConnected => _reader.IsConnected || _wudfTap.IsConnected || _bleHidsConnected;
 
     public ChromecastHidBridge(
         RemoteMappingStore mappings,
@@ -46,12 +49,21 @@ public sealed class ChromecastHidBridge : IDisposable
         _reader = new HidCollectionReader(VendorId, ProductId, "CAST-HID");
         _reader.ConnectionChanged += _ => ConnectionChanged?.Invoke(IsConnected);
         _reader.InputReportReceived += OnHidReport;
+
+        _wudfTap = new WudfHostHidTap(VendorId, ProductId, _remappingEnabled, "CAST-HID");
+        _wudfTap.ConnectionChanged += _ => ConnectionChanged?.Invoke(IsConnected);
+        _wudfTap.ReportReceived += OnWudfHidReport;
+
         rawInput.HidReportReceived += OnRawHidReport;
         rawInput.KeyboardReportReceived += OnRawKeyboard;
         rawInput.DeviceTopologyChanged += _reader.RefreshDevices;
     }
 
-    public void Start() => _reader.Start();
+    public void Start()
+    {
+        _reader.Start();
+        _wudfTap.Start();
+    }
 
     public void Stop()
     {
@@ -60,13 +72,22 @@ public sealed class ChromecastHidBridge : IDisposable
             _lastButtonId = null;
             _bleHidsConnected = false;
         }
+        _wudfTap.Stop();
         _reader.Stop();
     }
 
     public void SetRemappingEnabled(bool enabled)
     {
         _remappingEnabled = enabled;
-        LogService.Write($"[CAST-HID] remapping={(enabled ? "ON" : "OFF")} {_reader.DescribeStreams()} bleHids={_bleHidsConnected}");
+        _wudfTap.SetSuppressEnabled(enabled);
+        LogService.Write($"[CAST-HID] remapping={(enabled ? "ON" : "OFF")} {_reader.DescribeStreams()} wudf={_wudfTap.IsConnected} bleHids={_bleHidsConnected}");
+    }
+
+    private void OnWudfHidReport(byte reportId, byte[] payload)
+    {
+        ActivityObserved?.Invoke();
+        byte[] raw = [reportId, .. payload];
+        OnHidReport(new HidInputReport(0x000C, 0x0001, reportId, payload, raw, []));
     }
 
     public void OnBleHidsConnectionChanged(bool connected)
@@ -294,10 +315,10 @@ public sealed class ChromecastHidBridge : IDisposable
             0x00E2 => "08", // Mute
             0x00E9 => "0C", // Volume Up
             0x00EA => "0D", // Volume Down
-            0x0030 or 0x0031 or 0x0032 => "01", // Power / Reset / Sleep
+            0x0030 or 0x0031 or 0x0032 or 0x019E => "01", // Power / Reset / Sleep (0x019E on Chromecast Remote)
             0x0077 => "0E", // YouTube
             0x0078 => "0F", // Netflix
-            0x006A or 0x0082 or 0x00B8 or 0x019D => "11", // Input / Source
+            0x006A or 0x0082 or 0x00B8 or 0x0189 or 0x019D => "11", // Input / Source (0x0189 on Chromecast Remote)
             _ => null
         };
         return buttonId is not null;

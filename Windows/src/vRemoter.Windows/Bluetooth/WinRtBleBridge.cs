@@ -3,6 +3,7 @@ using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Foundation.Metadata;
 using vRemoter.Core.Protocol;
 using vRemoter.Core.Session;
+using vRemoter.Windows.Input;
 using vRemoter.Windows.SystemSupport;
 
 namespace vRemoter.Windows.Bluetooth;
@@ -75,6 +76,7 @@ public sealed partial class WinRtBleBridge : IDisposable
         _enableHidsFallback = enableHidsFallback;
         _watcher = new BleDeviceWatcher(nameHint, savedAddressFilename, logTag);
         _watcher.ConnectedCandidateFound += OnCandidateFound;
+        _watcher.PairedCandidateFound += OnPairedCandidateFound;
         _watcher.DeviceDisconnected += OnWatcherDisconnected;
     }
 
@@ -86,6 +88,31 @@ public sealed partial class WinRtBleBridge : IDisposable
         if (_isStarted) return;
         _isStarted = true;
         _watcher.Start();
+        if (_enableHidsFallback)
+        {
+            _ = Task.Run(EnsureDriverAndReconnectAsync);
+        }
+        else if (_watcher.SavedAddress != 0)
+        {
+            PokeReconnect();
+        }
+    }
+
+    public void PokeReconnect()
+    {
+        if (!_isStarted || _isConnected) return;
+        _ = Task.Run(async () =>
+        {
+            var candidates = _watcher.GetPairedCandidates();
+            if (candidates.Count > 0)
+            {
+                await ConnectAsync(candidates[0]);
+            }
+            else if (_watcher.SavedAddress != 0)
+            {
+                await TryConnectBySavedAddressAsync(_watcher.SavedAddress);
+            }
+        });
     }
 
     public void Stop()
@@ -186,6 +213,57 @@ public sealed partial class WinRtBleBridge : IDisposable
         if (!_isStarted) return;
         if (_connectedDeviceId == candidate.DeviceId && _isConnected) return;
         _ = Task.Run(() => ConnectAsync(candidate));
+    }
+
+    private void OnPairedCandidateFound(MatchedBleRemote candidate)
+    {
+        if (!_isStarted || _isConnected) return;
+        _ = Task.Run(() => ConnectAsync(candidate));
+    }
+
+    private async Task EnsureDriverAndReconnectAsync()
+    {
+        try
+        {
+            _ = BleHidsDriverTakeover.EnsureHidBthLeRestored(
+                ChromecastHidBridge.VendorId,
+                ChromecastHidBridge.ProductId,
+                _watcher.SavedAddress,
+                _logTag,
+                out bool repairedDriver);
+
+            PokeReconnect();
+            if (repairedDriver)
+            {
+                await Task.Delay(2500);
+                if (_isStarted && !_isConnected)
+                {
+                    _ = await BleHidsDriverTakeover.TryCycleBluetoothRadioAsync(_logTag, force: true);
+                    PokeReconnect();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.Write($"[{_logTag}] driver check warning: {ex.Message}");
+        }
+    }
+
+    private async Task TryConnectBySavedAddressAsync(ulong address)
+    {
+        if (!_isStarted || _isConnected || address == 0) return;
+        try
+        {
+            var bleDevice = await BluetoothLEDevice.FromBluetoothAddressAsync(address);
+            if (bleDevice is null) return;
+            string devId = bleDevice.DeviceId;
+            string name = string.IsNullOrEmpty(bleDevice.Name) ? "Chromecast Remote" : bleDevice.Name;
+            bleDevice.Dispose();
+            await ConnectAsync(new MatchedBleRemote(devId, name, address, IsConnected: true));
+        }
+        catch
+        {
+        }
     }
 
     private void OnWatcherDisconnected(string deviceId)

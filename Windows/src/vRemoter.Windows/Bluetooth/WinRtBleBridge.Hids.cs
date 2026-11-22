@@ -26,8 +26,7 @@ public sealed partial class WinRtBleBridge
 
     private async Task TryAttachHidsReportMonitorAsync(BluetoothLEDevice bleDevice)
     {
-        // 1. Attach direct Win32 BluetoothAPIs.dll GATT 0x1812 reader (with automatic bthleenum.inf
-        // Generic Attribute Service takeover if hidbthle.inf / mshidumdf blocks 0x1812).
+        // 1. Ensure hidbthle.inf (mshidumdf) is bound on 0x1812 so Windows Bluetooth + WUDFHost.exe work normally.
         _win32HidsReader ??= CreateWin32HidsReader();
         bool win32Subscribed = await Task.Run(() => _win32HidsReader.TryAttach());
         if (win32Subscribed)

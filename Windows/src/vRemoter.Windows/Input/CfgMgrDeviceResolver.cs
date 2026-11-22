@@ -7,6 +7,7 @@ namespace vRemoter.Windows.Input;
 
 public sealed record BleHidsDevNodeInfo(
     string InstanceId,
+    string ParentInstanceId,
     ushort VendorId,
     ushort ProductId,
     ulong BluetoothAddress,
@@ -15,6 +16,10 @@ public sealed record BleHidsDevNodeInfo(
     uint Status,
     uint ProblemCode)
 {
+    public bool IsHidBthLeBound =>
+        string.Equals(Service, "mshidumdf", StringComparison.OrdinalIgnoreCase) &&
+        (string.IsNullOrEmpty(DriverInf) || DriverInf.Contains("hidbthle", StringComparison.OrdinalIgnoreCase));
+
     public bool IsGenericGattBound =>
         !string.Equals(Service, "mshidumdf", StringComparison.OrdinalIgnoreCase) &&
         !DriverInf.Contains("hidbthle", StringComparison.OrdinalIgnoreCase);
@@ -30,6 +35,7 @@ public static class CfgMgrDeviceResolver
     private const string HidsGattUuid = "00001812-0000-1000-8000-00805F9B34FB";
     private const uint CmGetIdListFilterEnumerator = 0x00000001;
     private const uint CmGetIdListFilterPresent = 0x00000100;
+    private const uint CmLocateDevNodePhantom = 0x00000001;
     private const uint DevPropTypeString = 0x00000012;
 
     private static readonly DEVPROPKEY PKeyDeviceInstanceId = new(
@@ -90,12 +96,15 @@ public static class CfgMgrDeviceResolver
     public static IReadOnlyList<BleHidsDevNodeInfo> FindBleHidsDevNodes(
         ushort targetVid,
         ushort targetPid,
-        ulong savedBluetoothAddress = 0)
+        ulong savedBluetoothAddress = 0,
+        bool includeNonPresent = false)
     {
         var results = new List<BleHidsDevNodeInfo>();
         try
         {
-            uint flags = CmGetIdListFilterEnumerator | CmGetIdListFilterPresent;
+            uint flags = includeNonPresent
+                ? CmGetIdListFilterEnumerator
+                : CmGetIdListFilterEnumerator | CmGetIdListFilterPresent;
             if (CM_Get_Device_ID_List_SizeW(out uint charCount, "BTHLEDEVICE", flags) != 0 ||
                 charCount == 0 || charCount > 262_144)
             {
@@ -108,6 +117,7 @@ public static class CfgMgrDeviceResolver
                 return results;
             }
 
+            uint locateFlags = includeNonPresent ? CmLocateDevNodePhantom : 0;
             string all = new(buffer);
             foreach (string rawInstance in all.Split('\0', StringSplitOptions.RemoveEmptyEntries))
             {
@@ -115,9 +125,15 @@ public static class CfgMgrDeviceResolver
                 {
                     continue;
                 }
-                if (CM_Locate_DevNodeW(out uint node, rawInstance, 0) != 0 || node == 0)
+                if (CM_Locate_DevNodeW(out uint node, rawInstance, locateFlags) != 0 || node == 0)
                 {
                     continue;
+                }
+
+                string parentInstanceId = string.Empty;
+                if (CM_Get_Parent(out uint immediateParent, node, 0) == 0 && immediateParent != 0)
+                {
+                    parentInstanceId = GetDevNodeInstanceId(immediateParent);
                 }
 
                 ushort vid = 0;
@@ -150,6 +166,7 @@ public static class CfgMgrDeviceResolver
 
                 results.Add(new BleHidsDevNodeInfo(
                     rawInstance,
+                    parentInstanceId,
                     vid != 0 ? vid : targetVid,
                     pid != 0 ? pid : targetPid,
                     mac,

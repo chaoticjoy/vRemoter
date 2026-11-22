@@ -115,5 +115,38 @@ public sealed class HidInputUpgradeTests
         engine.RecordRawEvent(0x26, isDown: true, isTargetRemote: true);
         Assert.Equal(true, engine.TryDecideIsRemote(0x26, isDown: true));
     }
+
+    [Fact]
+    public void WudfHidTapStubBuilder_BuildsValidX64PageAndDecodesRingEntries()
+    {
+        byte[] prologue = [0x4C, 0x8B, 0xD1, 0xB8, 0x07, 0x00, 0x00, 0x00, 0xF6, 0x04, 0x25, 0x08, 0x03, 0xFE, 0x7F, 0x01];
+        Assert.True(WudfHidTapStubBuilder.TryExtractSyscallId(prologue, out uint syscallId));
+        Assert.Equal(0x0007U, syscallId);
+
+        byte[] page = WudfHidTapStubBuilder.BuildHookPage(syscallId, suppressEnabled: true, prologue);
+        Assert.Equal(WudfHidTapStubBuilder.PageSize, page.Length);
+
+        var diag = WudfHidTapStubBuilder.ReadDiagnostics(page.AsSpan(WudfHidTapStubBuilder.OffMagic, 0x40));
+        Assert.Equal(WudfHidTapStubBuilder.MagicSignature, diag.Magic);
+        Assert.Equal(1U, diag.SuppressEnabled);
+        Assert.Equal(0x0007U, diag.SyscallId);
+
+        // Verify 8-byte relative jump patch round-trip
+        long ntAddr = 0x7FFA_1234_0000L;
+        long pageAddr = 0x7FFA_0034_0000L;
+        byte[] jmp = WudfHidTapStubBuilder.BuildRelJmp8(ntAddr, pageAddr);
+        Assert.Equal(8, jmp.Length);
+        Assert.Equal(0xE9, jmp[0]);
+        int rel32 = BitConverter.ToInt32(jmp, 1);
+        Assert.Equal(pageAddr, ntAddr + 5 + rel32);
+
+        // Verify 3-byte report ring entry decoding ([0x02, 0x9E, 0x01] = Power 0x019E, seq = 0x2A)
+        uint packed = 0x02U | (0x9EU << 8) | (0x01U << 16) | (0x2AU << 24);
+        var decoded = WudfHidTapStubBuilder.DecodeRingEntry(packed);
+        Assert.Equal(0x02, decoded.ReportId);
+        Assert.Equal(0x019E, decoded.Usage);
+        Assert.Equal(0x2A, decoded.Sequence);
+        Assert.Equal(new byte[] { 0x9E, 0x01 }, decoded.ToPayload());
+    }
 }
 

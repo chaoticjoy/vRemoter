@@ -15,10 +15,10 @@
 
 - **修复 Windows 按键映射页面下拉框文字不可见问题**：重写 `ConsoleComboBoxStyle` 与 `ConsoleComboBoxItemStyle` 深色控件模板，解决 Windows WPF 默认亮色下拉背景与白色前景色冲突导致文字看不见的问题，并优化标签页与设备卡片悬停样式。
 - **修复 Windows 遥控器按键映射链路与兼容多类 HID / BLE GATT 上报**：
-  - 修复 Windows BLE `VID&0002xxxx_PID&xxxx` 设备路径解析缺陷（原正则把 8 位蓝牙 PnP VID 前缀误截断为 `0x0218` 导致蓝牙键盘/遥控器事件被丢弃），并引入 `cfgmgr32` 父设备节点链回溯解析；
-  - 升级 `RawInputMonitor` 支持 `RIDI_PREPARSEDDATA`（`0x20000005`）+ `HidP_GetUsagesEx` / `HidP_GetUsages` 原生描述符解码，解除 `HidCollectionReader` 打开流时对 `RawInput` 的互斥屏蔽；
-  - 新增 `KeyCorrelationEngine` 设备级按键来源关联引擎，在 `WH_KEYBOARD_LL` 中区分遥控器按键与电脑主键盘按键（严格 Fail-Open，绝不误吞主键盘按键）；
-  - 新增 `Win32BleGattHidsReader`（基于 `BluetoothAPIs.dll` 直连 `0x1812` / `0x2A4D` 与 `HidReportMapParser` `0x2A4B` 报告描述符解析器）及 `BleHidsDriverTakeover`（当系统 `hidbthle.inf` 独占锁死或拒载 `0x1812` 时，自动将该遥控器的 `0x1812` 节点切换为系统内置签名 `bthleenum.inf` 通用属性服务，与语音键 `AB5E0001` 采用同等 BLE GATT 通知机制驱动全部按键）。
+  - 新增 `WudfHostHidTap` 原生 x64 零线程无锁环形缓冲区旁路引擎：针对 Google Chromecast Voice Remote（`18D1:9450`）在 Windows 10/11 下 3 字节 Consumer Control 报文 `[0x02, usage_lo, usage_hi]`（含电源 `0x019E`、信源 `0x0189`、方向键 `0x0042..0x0045`、确认 `0x0041`、返回 `0x0224`、主页 `0x0223`、音量/静音 `0x00E9`/`0x00EA`/`0x00E2`、YouTube `0x0077`、Netflix `0x0078`）在 `WUDFHost.exe`（`IOCTL 0x80018483`）内被系统 UMDF 蓝牙驱动消费而不向 `RawInput` / `ReadFile` 转发的问题，直接从 `WUDFHost.exe` 提取 3 字节按键报告并原地清零已重映射按键以避免系统双发；
+  - 自动守护与修复 `BTHLEDevice\{00001812-...}` 系统 `hidbthle.inf`（`mshidumdf`）驱动绑定，支持离线/休眠态 PnP 节点自愈与蓝牙电台自动解卡重连，并在按键活动时即时唤醒 ATVV 语音通道重连；
+  - 修复 Windows BLE `VID&0118d1_PID&9450` / `VID&0002xxxx_PID&xxxx` 设备路径解析缺陷与 `cfgmgr32` 父设备节点链回溯解析；
+  - 升级 `RawInputMonitor`（支持 `RIDI_PREPARSEDDATA` + `HidP_GetUsagesEx` / `HidP_GetUsages`）与 `KeyCorrelationEngine` 设备级按键来源关联引擎。
 - **适配 Electron / WebView 桌面应用（如 Antigravity IDE）**：自动请求 `AXEnhancedUserInterface`（macOS）/ UIA3（Windows）唤醒辅助功能树，并同时识别常见聊天输入框属性。
 - **解决切回 IDE 时焦点停留在代码编辑区的问题**：新增「从代码区等位置切回时也拉回输入框」选项（默认开启），从代码编辑区切回时可正确拉回聊天输入框，同时继续保护搜索框、重命名框、密码框与弹窗菜单不被误抢焦点。
 - **修复后台线程前台应用状态滞后与误中断问题**：前台应用改由主线程激活事件同步与实时前台查询联合获取；移除触控板惯性滚动对输入打断判定的干扰。

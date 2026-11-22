@@ -77,22 +77,15 @@ public sealed class Win32BleGattHidsReader : IDisposable
         }
 
         ulong savedMac = LoadSavedAddress();
-        if (TryOpenAndSubscribe(savedMac))
-        {
-            return true;
-        }
-
         if (!_attemptedDriverTakeover)
         {
             _attemptedDriverTakeover = true;
-            if (BleHidsDriverTakeover.EnsureGenericGattOnHids(_vendorId, _productId, savedMac, _logTag))
-            {
-                Thread.Sleep(350);
-                if (TryOpenAndSubscribe(savedMac))
-                {
-                    return true;
-                }
-            }
+            _ = BleHidsDriverTakeover.EnsureHidBthLeRestored(_vendorId, _productId, savedMac, _logTag, out _);
+        }
+
+        if (TryOpenAndSubscribe(savedMac))
+        {
+            return true;
         }
 
         return false;

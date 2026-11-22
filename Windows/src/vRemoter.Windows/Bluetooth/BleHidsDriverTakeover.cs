@@ -2,18 +2,17 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using Windows.Devices.Radios;
 using vRemoter.Windows.Input;
 using vRemoter.Windows.SystemSupport;
 
 namespace vRemoter.Windows.Bluetooth;
 
 /// <summary>
-/// Switches a target BLE remote's BTHLEDevice\{00001812-...} (HOGP HIDS) devnode
-/// from hidbthle.inf (mshidumdf) to Microsoft's built-in signed bthleenum.inf
-/// ("Bluetooth LE Generic Attribute Service", BTHLEDevice\GenericATTService)
-/// via SetupAPI + DiInstallDevice — ported from 10RemoteHub's win_usb_driver.py.
-/// This releases mshidumdf's exclusive lock on 0x1812 so user-space GATT readers
-/// can subscribe to 0x2A4D button notifications identically to the 0xAB5E0001 voice service.
+/// Ensures a BLE remote's BTHLEDevice\{00001812-...} (HOGP HIDS) devnode is bound
+/// to Microsoft's standard hidbthle.inf (mshidumdf) driver so Windows Bluetooth
+/// automatically connects the remote and hosts HidOverGatt.dll in WUDFHost.exe.
+/// Also provides non-destructive Bluetooth Radio cycling (ported from vibe-mote's unstick_bluetooth).
 /// </summary>
 public static class BleHidsDriverTakeover
 {
@@ -23,68 +22,112 @@ public static class BleHidsDriverTakeover
     private const uint SpditClassDriver = 1;
     private const uint SpditCompatDriver = 2;
 
-    public static bool EnsureGenericGattOnHids(
+    private static DateTimeOffset _lastRadioCycleAt = DateTimeOffset.MinValue;
+
+    public static bool EnsureHidBthLeRestored(
         ushort vendorId,
         ushort productId,
         ulong savedBluetoothAddress,
-        string logTag)
+        string logTag,
+        out bool repairedAnyDriver)
     {
-        var nodes = CfgMgrDeviceResolver.FindBleHidsDevNodes(vendorId, productId, savedBluetoothAddress);
+        repairedAnyDriver = false;
+        var nodes = CfgMgrDeviceResolver.FindBleHidsDevNodes(
+            vendorId,
+            productId,
+            savedBluetoothAddress,
+            includeNonPresent: true);
         if (nodes.Count == 0)
         {
-            LogService.Write($"[{logTag}] no BTHLE 0x1812 devnode found for VID=0x{vendorId:X4} PID=0x{productId:X4}");
             return false;
         }
 
-        bool anyReady = false;
+        bool allHealthy = true;
         foreach (var node in nodes)
         {
             LogService.Write($"[{logTag}] BTHLE 0x1812 node={node.InstanceId} svc='{node.Service}' inf='{node.DriverInf}' status=0x{node.Status:X8} problem={node.ProblemCode}");
-            if (node.IsGenericGattBound && node.ProblemCode == 0)
+            if (node.IsHidBthLeBound && node.ProblemCode == 0)
             {
-                anyReady = true;
                 continue;
             }
 
             if (!WindowsVersionInfo.IsElevated)
             {
-                LogService.Write($"[{logTag}] skip bthleenum.inf takeover (process not elevated)");
+                LogService.Write($"[{logTag}] 0x1812 needs hidbthle.inf restore (not elevated)");
+                allHealthy = false;
                 continue;
             }
 
-            if (TryBindDevNodeToInf(node.InstanceId, "bthleenum.inf", MatchGenericGattDriver, logTag))
-            {
-                anyReady = true;
-            }
-        }
-        return anyReady;
-    }
-
-    public static bool RestoreHidBthLeOnHids(
-        ushort vendorId,
-        ushort productId,
-        ulong savedBluetoothAddress,
-        string logTag)
-    {
-        if (!WindowsVersionInfo.IsElevated) return false;
-        var nodes = CfgMgrDeviceResolver.FindBleHidsDevNodes(vendorId, productId, savedBluetoothAddress);
-        bool ok = false;
-        foreach (var node in nodes)
-        {
             if (TryBindDevNodeToInf(node.InstanceId, "hidbthle.inf", MatchHidBthLeDriver, logTag))
             {
-                ok = true;
+                repairedAnyDriver = true;
+                if (!string.IsNullOrEmpty(node.ParentInstanceId))
+                {
+                    RestartDeviceViaPnpUtil(node.ParentInstanceId);
+                }
+            }
+            else
+            {
+                allHealthy = false;
             }
         }
-        return ok;
+        return allHealthy;
     }
 
-    private static bool MatchGenericGattDriver(string section, string hwid, string description) =>
-        hwid.Contains("GENERICATTSERVICE", StringComparison.OrdinalIgnoreCase) ||
-        hwid.Contains("GATTSERVICE", StringComparison.OrdinalIgnoreCase) ||
-        section.Contains("GattService", StringComparison.OrdinalIgnoreCase) ||
-        section.Contains("GenericATT", StringComparison.OrdinalIgnoreCase) ||
-        description.Contains("Generic Attribute", StringComparison.OrdinalIgnoreCase);
+    public static async Task<bool> TryCycleBluetoothRadioAsync(string logTag, bool force = false)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (!force && now - _lastRadioCycleAt < TimeSpan.FromMinutes(5))
+        {
+            return false;
+        }
+        _lastRadioCycleAt = now;
+
+        try
+        {
+            var radios = await Radio.GetRadiosAsync();
+            var btRadio = radios.FirstOrDefault(r => r.Kind == RadioKind.Bluetooth);
+            if (btRadio is null)
+            {
+                return false;
+            }
+
+            if (btRadio.State != RadioState.On)
+            {
+                for (int i = 0; i < 3; i++)
+                {
+                    _ = await btRadio.SetStateAsync(RadioState.On);
+                    await Task.Delay(1200);
+                    if (btRadio.State == RadioState.On)
+                    {
+                        LogService.Write($"[{logTag}] Bluetooth radio was OFF -> turned ON");
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            LogService.Write($"[{logTag}] cycling Bluetooth radio OFF/ON to restore BLE+HID link...");
+            _ = await btRadio.SetStateAsync(RadioState.Off);
+            await Task.Delay(2500);
+
+            for (int attempt = 1; attempt <= 3; attempt++)
+            {
+                _ = await btRadio.SetStateAsync(RadioState.On);
+                await Task.Delay(1800);
+                if (btRadio.State == RadioState.On)
+                {
+                    LogService.Write($"[{logTag}] Bluetooth radio confirmed back ON (attempt={attempt})");
+                    return true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.Write($"[{logTag}] Bluetooth radio cycle warning: {ex.Message}");
+        }
+        return false;
+    }
 
     private static bool MatchHidBthLeDriver(string section, string hwid, string description) =>
         hwid.Contains("00001812", StringComparison.OrdinalIgnoreCase) ||
