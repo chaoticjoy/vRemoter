@@ -34,6 +34,28 @@ public sealed partial class WinRtBleBridge
                 ? string.Join(",", allSvcs.Services.Select(s => s.Uuid.ToString()[..8]))
                 : allSvcs.Status.ToString();
             LogService.Write($"[{_logTag}] BLE pairing paired={pairing.IsPaired} prot={pairing.ProtectionLevel} svcs=[{svcList}]");
+
+            if (allSvcs.Status == GattCommunicationStatus.Success)
+            {
+                foreach (var svc in allSvcs.Services)
+                {
+                    string shortId = svc.Uuid.ToString()[..8];
+                    if (shortId is "00001800" or "00001801" or "0000180a" or "0000180f" or "00001812" or "ab5e0001")
+                    {
+                        continue;
+                    }
+                    try
+                    {
+                        var chRes = await svc.GetCharacteristicsAsync(BluetoothCacheMode.Cached);
+                        if (chRes.Status == GattCommunicationStatus.Success && chRes.Characteristics.Count > 0)
+                        {
+                            string chList = string.Join(",", chRes.Characteristics.Select(c => $"{c.Uuid.ToString()[..8]}:{(int)c.CharacteristicProperties:X2}"));
+                            LogService.Write($"[{_logTag}] BLE vendor svc={shortId} chars=[{chList}]");
+                        }
+                    }
+                    catch { }
+                }
+            }
         }
         catch (Exception ex)
         {

@@ -27,22 +27,27 @@ public readonly record struct WudfTapDiagnostics(
     uint TraceSeq,
     uint CaptureAny3Reports,
     ulong ReadCalls,
-    ulong AlpcCalls);
+    ulong AlpcCalls,
+    ulong WriteCalls = 0,
+    ulong IoCompCalls = 0,
+    uint AlpcTraceWriteSeq = 0,
+    uint AlpcTraceCommittedSeq = 0);
 
 /// <summary>
-/// Builds the position-independent 4KB x64 page and decodes the lock-free ring buffers
-/// used by WudfHostHidTap to intercept IOCTL 0x80018483 (and fallback 3-byte HOGP reports)
-/// inside WUDFHost.exe on Windows 10/11.
+/// Builds the position-independent 8KB x64 page and decodes the lock-free ring buffers
+/// used by WudfHostHidTap to intercept IOCTL 0x80018483, 3-byte HOGP reports, and ALPC
+/// traffic inside WUDFHost.exe on Windows 10/11.
 /// </summary>
 public static class WudfHidTapStubBuilder
 {
-    public const int PageSize = 4096;
+    public const int PageSize = 8192;
     public const uint ReadIoctlCode = 0x80018483;
-    public const ulong MagicSignature = 0x344644574D455256UL; // "VREMWDF4"
+    public const ulong MagicSignature = 0x354644574D455256UL; // "VREMWDF5"
 
     public const int OffCode = 0x000;
     public const int OffReadStub = 0x200;
-    public const int OffAlpcStub = 0x220;
+    public const int OffWriteStub = 0x220;
+    public const int OffIoCompStub = 0x240;
     public const int OffMagic = 0x280;
     public const int OffTotalCalls = 0x288;
     public const int OffIoctlCalls = 0x290;
@@ -59,7 +64,11 @@ public static class WudfHidTapStubBuilder
     public const int OffCaptureAny3Reports = 0x2C4;
     public const int OffReadCalls = 0x2C8;
     public const int OffAlpcCalls = 0x2D0;
-    public const int OffOriginalBytes = 0x2D8;
+    public const int OffWriteCalls = 0x2D8;
+    public const int OffIoCompCalls = 0x2E0;
+    public const int OffAlpcTraceWriteSeq = 0x2E8;
+    public const int OffAlpcTraceCommittedSeq = 0x2EC;
+    public const int OffOriginalBytes = 0x2F0;
 
     public const int OffRingBuffer = 0x300;
     public const int RingCapacity = 256; // 256 * 4 = 1024 bytes (0x300..0x6FF)
@@ -67,15 +76,30 @@ public static class WudfHidTapStubBuilder
     public const int OffTraceBuffer = 0x700;
     public const int TraceCapacity = 64; // 64 * 16 = 1024 bytes (0x700..0xAFF)
 
+    public const int OffAlpcStub = 0xB00;
+    public const int OffAlpcStubLimit = 0xD00; // 512 bytes (0xB00..0xCFF)
+    public const int OffAlpcTraceBuffer = 0x1000; // 32 * 128 = 4096 bytes (0x1000..0x1FFF)
+
     public static byte[] BuildHookPage(
         uint syscallId,
         bool suppressEnabled,
         ReadOnlySpan<byte> originalEntryBytes,
         bool captureAny3Reports = false,
         uint readSyscallId = 0,
-        uint alpcSyscallId = 0)
+        uint alpcSyscallId = 0,
+        uint writeSyscallId = 0,
+        uint ioCompSyscallId = 0)
     {
-        return BuildHookPage(syscallId, suppressEnabled, originalEntryBytes, out _, captureAny3Reports, readSyscallId, alpcSyscallId);
+        return BuildHookPage(
+            syscallId,
+            suppressEnabled,
+            originalEntryBytes,
+            out _,
+            captureAny3Reports,
+            readSyscallId,
+            alpcSyscallId,
+            writeSyscallId,
+            ioCompSyscallId);
     }
 
     public static byte[] BuildHookPage(
@@ -85,7 +109,9 @@ public static class WudfHidTapStubBuilder
         out int retOffset,
         bool captureAny3Reports = false,
         uint readSyscallId = 0,
-        uint alpcSyscallId = 0)
+        uint alpcSyscallId = 0,
+        uint writeSyscallId = 0,
+        uint ioCompSyscallId = 0)
     {
         byte[] page = new byte[PageSize];
         int pos = OffCode;
@@ -287,9 +313,25 @@ public static class WudfHidTapStubBuilder
         {
             EmitSyscallCounterStub(page, OffReadStub, OffReadCalls, readSyscallId);
         }
+        if (writeSyscallId != 0)
+        {
+            EmitSyscallCounterStub(page, OffWriteStub, OffWriteCalls, writeSyscallId);
+        }
+        if (ioCompSyscallId != 0)
+        {
+            EmitSyscallCounterStub(page, OffIoCompStub, OffIoCompCalls, ioCompSyscallId);
+        }
         if (alpcSyscallId != 0)
         {
-            EmitSyscallCounterStub(page, OffAlpcStub, OffAlpcCalls, alpcSyscallId);
+            WudfAlpcStubEmitter.EmitAlpcStub(
+                page,
+                OffAlpcStub,
+                OffAlpcStubLimit,
+                OffAlpcCalls,
+                OffAlpcTraceWriteSeq,
+                OffAlpcTraceCommittedSeq,
+                OffAlpcTraceBuffer,
+                alpcSyscallId);
         }
 
         // Populate data header at OffMagic (0x280)
@@ -390,7 +432,11 @@ public static class WudfHidTapStubBuilder
             BinaryPrimitives.ReadUInt32LittleEndian(headerFromMagic.Slice(0x40, 4)),
             BinaryPrimitives.ReadUInt32LittleEndian(headerFromMagic.Slice(0x44, 4)),
             BinaryPrimitives.ReadUInt64LittleEndian(headerFromMagic.Slice(0x48, 8)),
-            BinaryPrimitives.ReadUInt64LittleEndian(headerFromMagic.Slice(0x50, 8)));
+            BinaryPrimitives.ReadUInt64LittleEndian(headerFromMagic.Slice(0x50, 8)),
+            BinaryPrimitives.ReadUInt64LittleEndian(headerFromMagic.Slice(0x58, 8)),
+            BinaryPrimitives.ReadUInt64LittleEndian(headerFromMagic.Slice(0x60, 8)),
+            BinaryPrimitives.ReadUInt32LittleEndian(headerFromMagic.Slice(0x68, 4)),
+            BinaryPrimitives.ReadUInt32LittleEndian(headerFromMagic.Slice(0x6C, 4)));
     }
 
     public static WudfTapReport DecodeRingEntry(uint packedEntry)

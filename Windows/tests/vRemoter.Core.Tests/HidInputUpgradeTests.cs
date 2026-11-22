@@ -123,10 +123,38 @@ public sealed class HidInputUpgradeTests
         Assert.True(WudfHidTapStubBuilder.TryExtractSyscallId(prologue, out uint syscallId));
         Assert.Equal(0x0007U, syscallId);
 
-        byte[] page = WudfHidTapStubBuilder.BuildHookPage(syscallId, suppressEnabled: true, prologue, out int retOffset, captureAny3Reports: true, readSyscallId: 0x0006U, alpcSyscallId: 0x007DU);
+        byte[] page = WudfHidTapStubBuilder.BuildHookPage(
+            syscallId,
+            suppressEnabled: true,
+            prologue,
+            out int retOffset,
+            captureAny3Reports: true,
+            readSyscallId: 0x0006U,
+            alpcSyscallId: 0x007DU,
+            writeSyscallId: 0x0008U,
+            ioCompSyscallId: 0x0026U);
         Assert.Equal(WudfHidTapStubBuilder.PageSize, page.Length);
         Assert.InRange(retOffset, 150, WudfHidTapStubBuilder.OffReadStub - 1);
         Assert.Equal(0xC3, page[retOffset]);
+
+        // Verify ALPC stub populated and decodable
+        Assert.Equal(0xF0, page[WudfHidTapStubBuilder.OffAlpcStub]);
+        var slot = new byte[WudfAlpcStubEmitter.SlotSize];
+        BitConverter.GetBytes(0x00000000U).CopyTo(slot, 0x00);
+        BitConverter.GetBytes(0x00020000U).CopyTo(slot, 0x04);
+        BitConverter.GetBytes((ushort)0x1234).CopyTo(slot, 0x08);
+        BitConverter.GetBytes((ushort)4).CopyTo(slot, 0x0A);
+        BitConverter.GetBytes((ushort)(0x28 + 4)).CopyTo(slot, 0x0C);
+        slot[0x0E] = 0x02;
+        slot[0x0F] = 0x01;
+        slot[0x10] = 0xAA;
+        slot[0x11] = 0x02;
+        slot[0x12] = 0x42;
+        slot[0x13] = 0x00;
+        var alpcEntry = WudfAlpcStubEmitter.DecodeAlpcEntry(slot);
+        Assert.Equal(0x1234, alpcEntry.PortHandleLo);
+        Assert.Equal((byte)1, alpcEntry.Direction);
+        Assert.Equal(new byte[] { 0xAA, 0x02, 0x42, 0x00 }, alpcEntry.Payload);
 
         // Every rel32 conditional jump (0F 84 / 0F 85) inside the stub that targets retOffset must be intact,
         // and total backward jumps from the main path must be 0.
@@ -154,7 +182,7 @@ public sealed class HidInputUpgradeTests
         }
         Assert.True(jumpCount >= 7, $"Expected >= 7 jumps to ret, got {jumpCount}");
 
-        var diag = WudfHidTapStubBuilder.ReadDiagnostics(page.AsSpan(WudfHidTapStubBuilder.OffMagic, 0x60));
+        var diag = WudfHidTapStubBuilder.ReadDiagnostics(page.AsSpan(WudfHidTapStubBuilder.OffMagic, 0x70));
         Assert.Equal(WudfHidTapStubBuilder.MagicSignature, diag.Magic);
         Assert.Equal(1U, diag.SuppressEnabled);
         Assert.Equal(0x0007U, diag.SyscallId);
