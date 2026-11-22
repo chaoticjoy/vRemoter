@@ -26,6 +26,20 @@ public sealed partial class WinRtBleBridge
 
     private async Task TryAttachHidsReportMonitorAsync(BluetoothLEDevice bleDevice)
     {
+        try
+        {
+            var pairing = bleDevice.DeviceInformation.Pairing;
+            var allSvcs = await bleDevice.GetGattServicesAsync(BluetoothCacheMode.Uncached);
+            string svcList = allSvcs.Status == GattCommunicationStatus.Success
+                ? string.Join(",", allSvcs.Services.Select(s => s.Uuid.ToString()[..8]))
+                : allSvcs.Status.ToString();
+            LogService.Write($"[{_logTag}] BLE pairing paired={pairing.IsPaired} prot={pairing.ProtectionLevel} svcs=[{svcList}]");
+        }
+        catch (Exception ex)
+        {
+            LogService.Write($"[{_logTag}] BLE service inventory warning: {ex.Message}");
+        }
+
         // 1. Ensure hidbthle.inf (mshidumdf) is bound on 0x1812 so Windows Bluetooth + WUDFHost.exe work normally.
         _win32HidsReader ??= CreateWin32HidsReader();
         bool win32Subscribed = await Task.Run(() => _win32HidsReader.TryAttach());

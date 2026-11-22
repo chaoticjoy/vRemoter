@@ -123,9 +123,9 @@ public sealed class HidInputUpgradeTests
         Assert.True(WudfHidTapStubBuilder.TryExtractSyscallId(prologue, out uint syscallId));
         Assert.Equal(0x0007U, syscallId);
 
-        byte[] page = WudfHidTapStubBuilder.BuildHookPage(syscallId, suppressEnabled: true, prologue, out int retOffset, captureAny3Reports: true);
+        byte[] page = WudfHidTapStubBuilder.BuildHookPage(syscallId, suppressEnabled: true, prologue, out int retOffset, captureAny3Reports: true, readSyscallId: 0x0006U, alpcSyscallId: 0x007DU);
         Assert.Equal(WudfHidTapStubBuilder.PageSize, page.Length);
-        Assert.InRange(retOffset, 150, WudfHidTapStubBuilder.OffMagic - 1);
+        Assert.InRange(retOffset, 150, WudfHidTapStubBuilder.OffReadStub - 1);
         Assert.Equal(0xC3, page[retOffset]);
 
         // Every rel32 conditional jump (0F 84 / 0F 85) inside the stub that targets retOffset must be intact,
@@ -154,11 +154,13 @@ public sealed class HidInputUpgradeTests
         }
         Assert.True(jumpCount >= 7, $"Expected >= 7 jumps to ret, got {jumpCount}");
 
-        var diag = WudfHidTapStubBuilder.ReadDiagnostics(page.AsSpan(WudfHidTapStubBuilder.OffMagic, 0x50));
+        var diag = WudfHidTapStubBuilder.ReadDiagnostics(page.AsSpan(WudfHidTapStubBuilder.OffMagic, 0x60));
         Assert.Equal(WudfHidTapStubBuilder.MagicSignature, diag.Magic);
         Assert.Equal(1U, diag.SuppressEnabled);
         Assert.Equal(0x0007U, diag.SyscallId);
         Assert.Equal(1U, diag.CaptureAny3Reports);
+        Assert.Equal(0UL, diag.ReadCalls);
+        Assert.Equal(0UL, diag.AlpcCalls);
 
         // Verify 8-byte relative jump patch round-trip
         long ntAddr = 0x7FFA_1234_0000L;

@@ -21,7 +21,12 @@ public sealed record HidInputReport(
 /// </summary>
 public sealed class HidCollectionReader : IDisposable
 {
-    private readonly record struct CollectionInfo(ushort UsagePage, ushort Usage, int InputReportByteLength);
+    private readonly record struct CollectionInfo(
+        ushort UsagePage,
+        ushort Usage,
+        int InputReportByteLength,
+        ushort InputBtnCaps = 0,
+        ushort InputValCaps = 0);
 
     private sealed class OpenCollection(
         string path,
@@ -208,7 +213,7 @@ public sealed class HidCollectionReader : IDisposable
             preparsed,
             stopEvent);
         _openStreams[devicePath] = entry;
-        LogService.Write($"[{_logTag}] opened stream UP=0x{info.UsagePage:X4} U=0x{info.Usage:X4} reportLen={reportLen}");
+        LogService.Write($"[{_logTag}] opened stream UP=0x{info.UsagePage:X4} U=0x{info.Usage:X4} reportLen={reportLen} btnCaps={info.InputBtnCaps} valCaps={info.InputValCaps}");
         _ = Task.Factory.StartNew(() => ReadLoop(entry), TaskCreationOptions.LongRunning);
     }
 
@@ -373,7 +378,12 @@ public sealed class HidCollectionReader : IDisposable
                 {
                     if (HidP_GetCaps(preparsed, out var caps) >= 0)
                     {
-                        info = new CollectionInfo(caps.UsagePage, caps.Usage, caps.InputReportByteLength);
+                        info = new CollectionInfo(
+                            caps.UsagePage,
+                            caps.Usage,
+                            caps.InputReportByteLength,
+                            caps.NumberInputButtonCaps,
+                            caps.NumberInputValueCaps);
                         return true;
                     }
                 }
