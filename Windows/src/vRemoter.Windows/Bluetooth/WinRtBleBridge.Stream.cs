@@ -65,7 +65,18 @@ public sealed partial class WinRtBleBridge
                 break;
 
             case AtvvControlEvent.AudioStop stop:
+                if (!_isStreaming && data.Length > 2)
+                {
+                    LogService.Write($"[{_logTag}] AUDIO_STOP (idle) payload hex={BitConverter.ToString(data)}");
+                }
                 FinishAudioStreamLocally(stop.Reason);
+                break;
+
+            case AtvvControlEvent.Unknown:
+                if (data.Length > 0)
+                {
+                    LogService.Write($"[{_logTag}] ATVV unknown ctl hex={BitConverter.ToString(data)}");
+                }
                 break;
 
             case AtvvControlEvent.AudioSync sync:

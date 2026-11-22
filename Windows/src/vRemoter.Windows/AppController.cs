@@ -64,7 +64,7 @@ public sealed class AppController : IDisposable
         _captureMonitor = new WasapiCaptureMonitor();
         _policyRoute = new PolicyConfigRoute();
         _keyboardGuard = new LowLevelKeyboardGuard();
-        _rawInput = new RawInputMonitor();
+        _rawInput = new RawInputMonitor(_keyboardGuard.Correlation);
         _appSwitcher = new AppSwitcherSession();
         _focusCoordinator = new InputFocusCoordinator(_focusStore, _keyboardGuard);
         _appLaunchService = new AppLaunchService(_focusCoordinator);
@@ -207,6 +207,7 @@ public sealed class AppController : IDisposable
         _x6Hid.LongPressEnded += _session.RemoteHidLongPressEnded;
 
         _chromecastHid.ConnectionChanged += connected => { _chromecastHidConnected = connected; UpdateStatus(); };
+        _chromecastBle.HidsConnectionChanged += _chromecastHid.OnBleHidsConnectionChanged;
         _chromecastBle.HidsReportReceived += _chromecastHid.OnBleHidsReport;
 
         WireBleEvents(_x6Ble, VoiceRemoteId.X6, false);

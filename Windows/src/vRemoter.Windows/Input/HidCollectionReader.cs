@@ -198,22 +198,23 @@ public sealed class HidCollectionReader : IDisposable
             return;
         }
 
+        int reportLen = info.InputReportByteLength > 0 ? info.InputReportByteLength : 64;
         var entry = new OpenCollection(
             devicePath,
             info.UsagePage,
             info.Usage,
-            Math.Max(8, info.InputReportByteLength),
+            reportLen,
             handle,
             preparsed,
             stopEvent);
         _openStreams[devicePath] = entry;
-        LogService.Write($"[{_logTag}] opened stream UP=0x{info.UsagePage:X4} U=0x{info.Usage:X4} reportLen={info.InputReportByteLength}");
+        LogService.Write($"[{_logTag}] opened stream UP=0x{info.UsagePage:X4} U=0x{info.Usage:X4} reportLen={reportLen}");
         _ = Task.Factory.StartNew(() => ReadLoop(entry), TaskCreationOptions.LongRunning);
     }
 
     private void ReadLoop(OpenCollection entry)
     {
-        int readLen = Math.Max(64, entry.InputReportLength);
+        int readLen = entry.InputReportLength > 0 ? entry.InputReportLength : 64;
         IntPtr ioEvent = CreateEventW(IntPtr.Zero, bManualReset: true, bInitialState: false, null);
         if (ioEvent == IntPtr.Zero)
         {
@@ -224,7 +225,6 @@ public sealed class HidCollectionReader : IDisposable
         IntPtr readBuf = Marshal.AllocHGlobal(readLen);
         IntPtr overlappedPtr = Marshal.AllocHGlobal(Marshal.SizeOf<OVERLAPPED>());
         IntPtr[] waitHandles = [ioEvent, entry.StopEvent];
-        var usageBuf = new USAGE_AND_PAGE[16];
 
         try
         {
@@ -273,7 +273,7 @@ public sealed class HidCollectionReader : IDisposable
 
                 byte reportId = packet[0];
                 byte[] payload = count > 1 ? packet[1..] : [];
-                var parsed = ParseUsages(entry.PreparsedData, packet, usageBuf);
+                var parsed = ParseHidUsages(entry.PreparsedData, entry.InputReportLength, packet);
 
                 InputReportReceived?.Invoke(new HidInputReport(
                     entry.UsagePage,
@@ -298,22 +298,6 @@ public sealed class HidCollectionReader : IDisposable
             _ = CloseHandle(ioEvent);
             RemoveAndDispose(entry);
         }
-    }
-
-    private static HidUsagePair[] ParseUsages(IntPtr preparsed, byte[] packet, USAGE_AND_PAGE[] usageBuf)
-    {
-        if (preparsed == IntPtr.Zero || packet.Length == 0) return [];
-        uint len = (uint)usageBuf.Length;
-        int status = HidP_GetUsagesEx(HidPInput, 0, usageBuf, ref len, preparsed, packet, (uint)packet.Length);
-        if (status < 0 || len == 0) return [];
-
-        int n = (int)Math.Min(len, (uint)usageBuf.Length);
-        var result = new HidUsagePair[n];
-        for (int i = 0; i < n; i++)
-        {
-            result[i] = new HidUsagePair(usageBuf[i].UsagePage, usageBuf[i].Usage);
-        }
-        return result;
     }
 
     private Dictionary<string, CollectionInfo> EnumerateMatchingDevices()
@@ -370,31 +354,44 @@ public sealed class HidCollectionReader : IDisposable
         info = default;
 
         using var handle = CreateFileW(path, 0, FileShareReadWrite, IntPtr.Zero, OpenExisting, 0, IntPtr.Zero);
-        if (handle.IsInvalid) return false;
-
-        var attrs = new HIDD_ATTRIBUTES { Size = (uint)Marshal.SizeOf<HIDD_ATTRIBUTES>() };
-        if (!HidD_GetAttributes(handle, ref attrs)) return false;
-
-        vid = attrs.VendorID;
-        pid = attrs.ProductID;
-
-        if (HidD_GetPreparsedData(handle, out IntPtr preparsed))
+        if (!handle.IsInvalid)
         {
-            try
+            var attrs = new HIDD_ATTRIBUTES { Size = (uint)Marshal.SizeOf<HIDD_ATTRIBUTES>() };
+            if (HidD_GetAttributes(handle, ref attrs))
             {
-                if (HidP_GetCaps(preparsed, out var caps) >= 0)
+                vid = attrs.VendorID;
+                pid = attrs.ProductID;
+            }
+            if ((vid == 0 || pid == 0) && !CfgMgrDeviceResolver.TryResolveInterfaceVidPid(path, out vid, out pid))
+            {
+                return false;
+            }
+
+            if (HidD_GetPreparsedData(handle, out IntPtr preparsed))
+            {
+                try
                 {
-                    info = new CollectionInfo(caps.UsagePage, caps.Usage, caps.InputReportByteLength);
-                    return true;
+                    if (HidP_GetCaps(preparsed, out var caps) >= 0)
+                    {
+                        info = new CollectionInfo(caps.UsagePage, caps.Usage, caps.InputReportByteLength);
+                        return true;
+                    }
+                }
+                finally
+                {
+                    _ = HidD_FreePreparsedData(preparsed);
                 }
             }
-            finally
-            {
-                _ = HidD_FreePreparsedData(preparsed);
-            }
+            info = new CollectionInfo(0, 0, 64);
+            return true;
         }
-        info = new CollectionInfo(0, 0, 64);
-        return true;
+
+        if (CfgMgrDeviceResolver.TryResolveInterfaceVidPid(path, out vid, out pid))
+        {
+            info = new CollectionInfo(0, 0, 0);
+            return true;
+        }
+        return false;
     }
 
     private void RemoveAndDispose(OpenCollection entry)

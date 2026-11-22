@@ -14,7 +14,11 @@
 ### 改进与修复
 
 - **修复 Windows 按键映射页面下拉框文字不可见问题**：重写 `ConsoleComboBoxStyle` 与 `ConsoleComboBoxItemStyle` 深色控件模板，解决 Windows WPF 默认亮色下拉背景与白色前景色冲突导致文字看不见的问题，并优化标签页与设备卡片悬停样式。
-- **修复 Windows 遥控器按键映射链路与兼容多类 HID 上报**：将 `HidCollectionReader` 从 `FileStream` 迁移至 Win32 原生异步 `ReadFile` + `OVERLAPPED`，按集合 `(UsagePage, Usage)` 精确判断活跃直读流，解除对 `RawInput` 回退路径的误屏蔽；新增 `RawInput` 多包拆分、`HidP_GetUsagesEx` 标准 Consumer/Keyboard 解析、`RIM_TYPEKEYBOARD` 虚拟键映射支持与未匹配键值诊断日志；同步清理 `AUDIO_STOP` 空闲残留日志。
+- **修复 Windows 遥控器按键映射链路与兼容多类 HID / BLE GATT 上报**：
+  - 修复 Windows BLE `VID&0002xxxx_PID&xxxx` 设备路径解析缺陷（原正则把 8 位蓝牙 PnP VID 前缀误截断为 `0x0218` 导致蓝牙键盘/遥控器事件被丢弃），并引入 `cfgmgr32` 父设备节点链回溯解析；
+  - 升级 `RawInputMonitor` 支持 `RIDI_PREPARSEDDATA`（`0x20000005`）+ `HidP_GetUsagesEx` / `HidP_GetUsages` 原生描述符解码，解除 `HidCollectionReader` 打开流时对 `RawInput` 的互斥屏蔽；
+  - 新增 `KeyCorrelationEngine` 设备级按键来源关联引擎，在 `WH_KEYBOARD_LL` 中区分遥控器按键与电脑主键盘按键（严格 Fail-Open，绝不误吞主键盘按键）；
+  - 新增 `Win32BleGattHidsReader`（基于 `BluetoothAPIs.dll` 直连 `0x1812` / `0x2A4D` 与 `HidReportMapParser` `0x2A4B` 报告描述符解析器）及 `BleHidsDriverTakeover`（当系统 `hidbthle.inf` 独占锁死或拒载 `0x1812` 时，自动将该遥控器的 `0x1812` 节点切换为系统内置签名 `bthleenum.inf` 通用属性服务，与语音键 `AB5E0001` 采用同等 BLE GATT 通知机制驱动全部按键）。
 - **适配 Electron / WebView 桌面应用（如 Antigravity IDE）**：自动请求 `AXEnhancedUserInterface`（macOS）/ UIA3（Windows）唤醒辅助功能树，并同时识别常见聊天输入框属性。
 - **解决切回 IDE 时焦点停留在代码编辑区的问题**：新增「从代码区等位置切回时也拉回输入框」选项（默认开启），从代码编辑区切回时可正确拉回聊天输入框，同时继续保护搜索框、重命名框、密码框与弹窗菜单不被误抢焦点。
 - **修复后台线程前台应用状态滞后与误中断问题**：前台应用改由主线程激活事件同步与实时前台查询联合获取；移除触控板惯性滚动对输入打断判定的干扰。

@@ -79,29 +79,39 @@ public sealed class X6HidBridge : IDisposable
         LogService.Write($"[X6-HID] remapping={(enabled ? "ON" : "OFF")}");
     }
 
-    private void OnRawHidReport(ushort vid, ushort pid, ushort usagePage, ushort usage, byte[] raw)
+    private void OnRawHidReport(
+        ushort vid,
+        ushort pid,
+        ushort usagePage,
+        ushort usage,
+        byte[] raw,
+        HidUsagePair[] parsedUsages)
     {
         if (vid != VendorId || pid != ProductId || raw.Length < 2) return;
-        if (usagePage != 0 && usage != 0 && _reader.HasOpenStream(usagePage, usage)) return;
-        if (usagePage == 0 && _reader.HasAnyOpenStream) return;
-
-        ProcessReport(raw[0], raw[1..]);
+        ProcessReport(raw[0], raw[1..], parsedUsages);
     }
 
-    private void OnHidReport(HidInputReport report) => ProcessReport(report.ReportId, report.Payload);
+    private void OnHidReport(HidInputReport report) =>
+        ProcessReport(report.ReportId, report.Payload, report.ParsedUsages);
 
-    private void ProcessReport(byte reportId, byte[] payload)
+    private void ProcessReport(byte reportId, byte[] payload, HidUsagePair[] parsedUsages)
     {
         switch (reportId)
         {
             case 0x02:
-                HandleConsumerReport(payload);
+                HandleConsumerReport(payload, parsedUsages);
                 break;
             case 0x03:
                 HandleSystemReport(payload);
                 break;
             case VoiceDataReportId:
                 // Vendor voice report diagnostic telemetry available if needed.
+                break;
+            default:
+                if (parsedUsages.Any(u => u.UsagePage == 0x0C))
+                {
+                    HandleConsumerReport(payload, parsedUsages);
+                }
                 break;
         }
     }
@@ -136,10 +146,17 @@ public sealed class X6HidBridge : IDisposable
         }
     }
 
-    private void HandleConsumerReport(byte[] data)
+    private void HandleConsumerReport(byte[] data, HidUsagePair[] parsedUsages)
     {
-        if (data.Length < 2) return;
-        ushort usage = (ushort)(data[0] | (data[1] << 8));
+        ushort usage = parsedUsages.FirstOrDefault(u => u.UsagePage == 0x0C).Usage;
+        if (usage == 0 && data.Length >= 2)
+        {
+            usage = (ushort)(data[0] | (data[1] << 8));
+        }
+        else if (usage == 0 && data.Length == 1)
+        {
+            usage = data[0];
+        }
         if (usage == _lastConsumerUsage) return;
 
         ushort previous = _lastConsumerUsage;

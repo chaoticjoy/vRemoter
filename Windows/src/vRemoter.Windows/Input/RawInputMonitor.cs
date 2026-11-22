@@ -1,24 +1,28 @@
-using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Windows.Interop;
+using vRemoter.Core.Input;
 using vRemoter.Windows.SystemSupport;
+using static vRemoter.Windows.Input.HidNativeInterop;
 
 namespace vRemoter.Windows.Input;
 
 /// <summary>
-/// Registers background Raw Input (RIDEV_INPUTSINK) on a message-only window so
-/// keyboard/consumer/system events from VID/PID-matched remotes are observed
-/// even when kbdhid.sys holds exclusive CreateFile access.
+/// Registers background Raw Input (RIDEV_INPUTSINK | RIDEV_DEVNOTIFY) on a message-only window.
+/// Ported with 10RemoteHub's windows_input.py + windows_hid.py + windows_probe_metadata.py enhancements:
+/// - Accurately resolves Bluetooth LE VID&amp;0002xxxx_PID&amp;xxxx and cfgmgr32 parent devnode VID/PID
+/// - Parses RIDI_PREPARSEDDATA (0x20000005) via HidP_GetUsagesEx / HidP_GetUsages
+/// - Feeds KeyCorrelationEngine for deterministic per-device WH_KEYBOARD_LL suppression
 /// </summary>
 public sealed class RawInputMonitor : IDisposable
 {
+    private const int WmInputDeviceChange = 0x00FE;
     private const int WmInput = 0x00FF;
     private const int WmDeviceChange = 0x0219;
     private const int RimTypeKeyboard = 1;
     private const int RimTypeHid = 2;
     private const uint RidInput = 0x10000003;
+    private const uint RidiPreparsedData = 0x20000005;
     private const uint RidiDeviceName = 0x20000007;
     private const uint RidiDeviceInfo = 0x2000000B;
     private const uint RidevInputSink = 0x00000100;
@@ -26,18 +30,45 @@ public sealed class RawInputMonitor : IDisposable
     private const ushort RiKeyBreak = 0x0001;
     private static readonly IntPtr HwndMessage = new(-3);
 
-    private static readonly Regex VidRegex = new(@"VID(?:_|&(?:[0-9A-Fa-f]{2})?(?=[0-9A-Fa-f]{4}))([0-9A-Fa-f]{4})", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-    private static readonly Regex PidRegex = new(@"PID(?:_|&)([0-9A-Fa-f]{4})", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private sealed class CachedDevice(
+        ushort vid,
+        ushort pid,
+        ushort usagePage,
+        ushort usage,
+        int inputReportLength,
+        IntPtr preparsedData) : IDisposable
+    {
+        public ushort Vid { get; } = vid;
+        public ushort Pid { get; } = pid;
+        public ushort UsagePage { get; } = usagePage;
+        public ushort Usage { get; } = usage;
+        public int InputReportLength { get; } = inputReportLength;
+        public IntPtr PreparsedData { get; private set; } = preparsedData;
 
-    private readonly record struct DeviceIdentity(ushort Vid, ushort Pid, ushort UsagePage, ushort Usage);
+        public void Dispose()
+        {
+            if (PreparsedData != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(PreparsedData);
+                PreparsedData = IntPtr.Zero;
+            }
+        }
+    }
 
-    private readonly Dictionary<IntPtr, DeviceIdentity> _deviceCache = [];
+    private readonly Dictionary<IntPtr, CachedDevice> _deviceCache = [];
+    private readonly KeyCorrelationEngine? _correlation;
     private HwndSource? _hwndSource;
     private bool _started;
+    private int _remoteRxLogCount;
 
     public event Action<ushort, ushort, ushort, bool, ushort>? KeyboardReportReceived;
-    public event Action<ushort, ushort, ushort, ushort, byte[]>? HidReportReceived;
+    public event Action<ushort, ushort, ushort, ushort, byte[], HidUsagePair[]>? HidReportReceived;
     public event Action? DeviceTopologyChanged;
+
+    public RawInputMonitor(KeyCorrelationEngine? correlation = null)
+    {
+        _correlation = correlation;
+    }
 
     public void Start()
     {
@@ -58,8 +89,8 @@ public sealed class RawInputMonitor : IDisposable
         RAWINPUTDEVICE[] devices =
         [
             new() { UsUsagePage = 0x01, UsUsage = 0x06, DwFlags = RidevInputSink | RidevDevNotify, HwndTarget = hwnd },
-            new() { UsUsagePage = 0x0C, UsUsage = 0x01, DwFlags = RidevInputSink, HwndTarget = hwnd },
-            new() { UsUsagePage = 0x01, UsUsage = 0x80, DwFlags = RidevInputSink, HwndTarget = hwnd }
+            new() { UsUsagePage = 0x0C, UsUsage = 0x01, DwFlags = RidevInputSink | RidevDevNotify, HwndTarget = hwnd },
+            new() { UsUsagePage = 0x01, UsUsage = 0x80, DwFlags = RidevInputSink | RidevDevNotify, HwndTarget = hwnd }
         ];
 
         if (!RegisterRawInputDevices(devices, (uint)devices.Length, (uint)Marshal.SizeOf<RAWINPUTDEVICE>()))
@@ -76,7 +107,7 @@ public sealed class RawInputMonitor : IDisposable
     public void Stop()
     {
         _started = false;
-        _deviceCache.Clear();
+        ClearCache();
         if (_hwndSource is not null)
         {
             _hwndSource.RemoveHook(WndProc);
@@ -91,9 +122,9 @@ public sealed class RawInputMonitor : IDisposable
         {
             ProcessRawInput(lParam);
         }
-        else if (msg == WmDeviceChange)
+        else if (msg is WmInputDeviceChange or WmDeviceChange)
         {
-            _deviceCache.Clear();
+            ClearCache();
             DeviceTopologyChanged?.Invoke();
         }
         return IntPtr.Zero;
@@ -103,7 +134,8 @@ public sealed class RawInputMonitor : IDisposable
     {
         uint size = 0;
         uint headerSize = (uint)Marshal.SizeOf<RAWINPUTHEADER>();
-        if (GetRawInputData(hRawInput, RidInput, IntPtr.Zero, ref size, headerSize) != 0 || size == 0)
+        if (GetRawInputData(hRawInput, RidInput, IntPtr.Zero, ref size, headerSize) != 0 ||
+            size == 0 || size > 4096)
         {
             return;
         }
@@ -117,18 +149,25 @@ public sealed class RawInputMonitor : IDisposable
             }
 
             var header = Marshal.PtrToStructure<RAWINPUTHEADER>(buffer);
-            if (!TryGetIdentity(header.HDevice, out var identity))
-            {
-                return;
-            }
+            var device = GetOrResolveDevice(header.HDevice);
+            bool isTargetRemote = IsKnownTargetRemote(device.Vid, device.Pid);
 
             if (header.DwType == RimTypeKeyboard)
             {
                 var kb = Marshal.PtrToStructure<RAWKEYBOARD>(IntPtr.Add(buffer, (int)headerSize));
+                if (kb.VKey == 0xFF) return;
                 bool isDown = (kb.Flags & RiKeyBreak) == 0;
-                KeyboardReportReceived?.Invoke(identity.Vid, identity.Pid, kb.VKey, isDown, kb.MakeCode);
+                _correlation?.RecordRawEvent(kb.VKey, isDown, isTargetRemote);
+
+                if (device.Vid == 0) return;
+                if (isTargetRemote && _remoteRxLogCount < 10)
+                {
+                    _remoteRxLogCount++;
+                    LogService.Write($"[RAWINPUT] kb VID=0x{device.Vid:X4} PID=0x{device.Pid:X4} vk=0x{kb.VKey:X2} scan=0x{kb.MakeCode:X2} down={isDown}");
+                }
+                KeyboardReportReceived?.Invoke(device.Vid, device.Pid, kb.VKey, isDown, kb.MakeCode);
             }
-            else if (header.DwType == RimTypeHid)
+            else if (header.DwType == RimTypeHid && device.Vid != 0)
             {
                 var hid = Marshal.PtrToStructure<RAWHID>(IntPtr.Add(buffer, (int)headerSize));
                 int itemSize = (int)hid.DwSizeHid;
@@ -141,7 +180,14 @@ public sealed class RawInputMonitor : IDisposable
                 {
                     byte[] report = new byte[itemSize];
                     Marshal.Copy(IntPtr.Add(dataPtr, i * itemSize), report, 0, itemSize);
-                    HidReportReceived?.Invoke(identity.Vid, identity.Pid, identity.UsagePage, identity.Usage, report);
+                    var parsed = ParseHidUsages(device.PreparsedData, device.InputReportLength, report);
+
+                    if (isTargetRemote && _remoteRxLogCount < 10)
+                    {
+                        _remoteRxLogCount++;
+                        LogService.Write($"[RAWINPUT] hid VID=0x{device.Vid:X4} PID=0x{device.Pid:X4} UP=0x{device.UsagePage:X4} U=0x{device.Usage:X4} hex={BitConverter.ToString(report)} usages={parsed.Length}");
+                    }
+                    HidReportReceived?.Invoke(device.Vid, device.Pid, device.UsagePage, device.Usage, report, parsed);
                 }
             }
         }
@@ -151,59 +197,116 @@ public sealed class RawInputMonitor : IDisposable
         }
     }
 
-    private bool TryGetIdentity(IntPtr hDevice, out DeviceIdentity identity)
+    private CachedDevice GetOrResolveDevice(IntPtr hDevice)
     {
         if (hDevice == IntPtr.Zero)
         {
-            identity = default;
-            return false;
+            return new CachedDevice(0, 0, 0, 0, 0, IntPtr.Zero);
         }
-        if (_deviceCache.TryGetValue(hDevice, out identity))
+        if (_deviceCache.TryGetValue(hDevice, out var cached))
         {
-            return identity.Vid != 0;
-        }
-
-        uint size = (uint)Marshal.SizeOf<RID_DEVICE_INFO>();
-        var info = new RID_DEVICE_INFO { CbSize = size };
-        if (GetRawInputDeviceInfoW(hDevice, RidiDeviceInfo, ref info, ref size) != unchecked((uint)-1) &&
-            info.DwType == RimTypeHid &&
-            info.Hid.DwVendorId != 0)
-        {
-            identity = new DeviceIdentity(
-                (ushort)info.Hid.DwVendorId,
-                (ushort)info.Hid.DwProductId,
-                info.Hid.UsUsagePage,
-                info.Hid.UsUsage);
-            _deviceCache[hDevice] = identity;
-            return true;
+            return cached;
         }
 
-        // For RIM_TYPEKEYBOARD (e.g. BLE HOGP keyboard collection), Windows does not
-        // populate RID_DEVICE_INFO_HID; resolve VID/PID from RIDI_DEVICENAME instead.
-        uint charCount = 0;
-        if (GetRawInputDeviceInfoCharW(hDevice, RidiDeviceName, null, ref charCount) != unchecked((uint)-1) &&
-            charCount > 0)
+        ushort vid = 0;
+        ushort pid = 0;
+        ushort usagePage = 0;
+        ushort usage = 0;
+
+        uint infoSize = (uint)Marshal.SizeOf<RID_DEVICE_INFO>();
+        var info = new RID_DEVICE_INFO { CbSize = infoSize };
+        if (GetRawInputDeviceInfoW(hDevice, RidiDeviceInfo, ref info, ref infoSize) != unchecked((uint)-1))
         {
-            var sb = new StringBuilder((int)charCount);
-            if (GetRawInputDeviceInfoCharW(hDevice, RidiDeviceName, sb, ref charCount) != unchecked((uint)-1))
+            if (info.DwType == RimTypeHid)
             {
-                string devName = sb.ToString();
-                var vm = VidRegex.Match(devName);
-                var pm = PidRegex.Match(devName);
-                if (vm.Success && pm.Success &&
-                    ushort.TryParse(vm.Groups[1].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ushort vid) &&
-                    ushort.TryParse(pm.Groups[1].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ushort pid))
-                {
-                    identity = new DeviceIdentity(vid, pid, 0x0001, 0x0006);
-                    _deviceCache[hDevice] = identity;
-                    return true;
-                }
+                vid = (ushort)info.Hid.DwVendorId;
+                pid = (ushort)info.Hid.DwProductId;
+                usagePage = info.Hid.UsUsagePage;
+                usage = info.Hid.UsUsage;
+            }
+            else if (info.DwType == RimTypeKeyboard)
+            {
+                usagePage = 0x0001;
+                usage = 0x0006;
             }
         }
 
-        _deviceCache[hDevice] = default;
-        identity = default;
-        return false;
+        string devPath = GetDevicePath(hDevice);
+        if ((vid == 0 || pid == 0) && !string.IsNullOrEmpty(devPath))
+        {
+            _ = CfgMgrDeviceResolver.TryResolveInterfaceVidPid(devPath, out vid, out pid);
+        }
+
+        IntPtr preparsed = IntPtr.Zero;
+        int inputReportLen = 0;
+        if (IsKnownTargetRemote(vid, pid))
+        {
+            preparsed = TryReadPreparsedData(hDevice, ref usagePage, ref usage, out inputReportLen);
+            LogService.Write($"[RAWINPUT] matched device VID=0x{vid:X4} PID=0x{pid:X4} UP=0x{usagePage:X4} U=0x{usage:X4} reportLen={inputReportLen}");
+        }
+
+        var entry = new CachedDevice(vid, pid, usagePage, usage, inputReportLen, preparsed);
+        _deviceCache[hDevice] = entry;
+        return entry;
+    }
+
+    private static string GetDevicePath(IntPtr hDevice)
+    {
+        uint charCount = 0;
+        if (GetRawInputDeviceInfoCharW(hDevice, RidiDeviceName, null, ref charCount) == unchecked((uint)-1) ||
+            charCount == 0 || charCount > 32_768)
+        {
+            return string.Empty;
+        }
+
+        var sb = new StringBuilder((int)charCount + 2);
+        return GetRawInputDeviceInfoCharW(hDevice, RidiDeviceName, sb, ref charCount) != unchecked((uint)-1)
+            ? sb.ToString()
+            : string.Empty;
+    }
+
+    private static IntPtr TryReadPreparsedData(
+        IntPtr hDevice,
+        ref ushort usagePage,
+        ref ushort usage,
+        out int inputReportLen)
+    {
+        inputReportLen = 0;
+        uint byteCount = 0;
+        if (GetRawInputDeviceInfoPtrW(hDevice, RidiPreparsedData, IntPtr.Zero, ref byteCount) == unchecked((uint)-1) ||
+            byteCount == 0 || byteCount > 65_536)
+        {
+            return IntPtr.Zero;
+        }
+
+        IntPtr buf = Marshal.AllocHGlobal((int)byteCount);
+        if (GetRawInputDeviceInfoPtrW(hDevice, RidiPreparsedData, buf, ref byteCount) == unchecked((uint)-1))
+        {
+            Marshal.FreeHGlobal(buf);
+            return IntPtr.Zero;
+        }
+
+        if (HidP_GetCaps(buf, out var caps) >= 0)
+        {
+            if (usagePage == 0) usagePage = caps.UsagePage;
+            if (usage == 0) usage = caps.Usage;
+            inputReportLen = caps.InputReportByteLength;
+        }
+        return buf;
+    }
+
+    private static bool IsKnownTargetRemote(ushort vid, ushort pid) =>
+        (vid == ChromecastHidBridge.VendorId && pid == ChromecastHidBridge.ProductId) ||
+        (vid == X6HidBridge.VendorId && pid == X6HidBridge.ProductId);
+
+    private void ClearCache()
+    {
+        foreach (var entry in _deviceCache.Values)
+        {
+            entry.Dispose();
+        }
+        _deviceCache.Clear();
+        _correlation?.Clear();
     }
 
     public void Dispose() => Stop();
@@ -273,4 +376,7 @@ public sealed class RawInputMonitor : IDisposable
 
     [DllImport("user32.dll", EntryPoint = "GetRawInputDeviceInfoW", CharSet = CharSet.Unicode)]
     private static extern uint GetRawInputDeviceInfoCharW(IntPtr hDevice, uint uiCommand, StringBuilder? pData, ref uint pcbSize);
+
+    [DllImport("user32.dll", EntryPoint = "GetRawInputDeviceInfoW", CharSet = CharSet.Unicode)]
+    private static extern uint GetRawInputDeviceInfoPtrW(IntPtr hDevice, uint uiCommand, IntPtr pData, ref uint pcbSize);
 }

@@ -1,13 +1,14 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using vRemoter.Core.Input;
 using vRemoter.Windows.SystemSupport;
 
 namespace vRemoter.Windows.Input;
 
 /// <summary>
 /// Global WH_KEYBOARD_LL hook with "MIRB" synthetic pass-through,
-/// 1.5s X6 Search suppression gate, and physical trigger key/chord observation.
-/// Callback executes lock-free in microseconds to avoid Windows hook timeout unhooks.
+/// 1.5s X6 Search suppression gate, per-device KeyCorrelationEngine check
+/// (ported from 10RemoteHub's win_hid_suppress.py), and physical trigger observation.
 /// </summary>
 public sealed class LowLevelKeyboardGuard : IDisposable
 {
@@ -38,6 +39,7 @@ public sealed class LowLevelKeyboardGuard : IDisposable
     private bool _chordTriggeredDown;
     private long _inputActivityStamp;
 
+    public KeyCorrelationEngine Correlation { get; } = new();
     public bool IsHookActive => _hookHandle != IntPtr.Zero;
     public long InputActivityStamp => Interlocked.Read(ref _inputActivityStamp);
 
@@ -76,6 +78,7 @@ public sealed class LowLevelKeyboardGuard : IDisposable
         }
         _physicalKeysDown.Clear();
         _suppressedSystemKeys.Clear();
+        Correlation.Clear();
         _chordTriggeredDown = false;
     }
 
@@ -90,10 +93,10 @@ public sealed class LowLevelKeyboardGuard : IDisposable
     }
 
     /// <summary>
-    /// Arms short suppression for remote-exclusive consumer/system keys when remapped
-    /// so Windows does not double-execute native volume/back/search/apps actions.
+    /// Arms short suppression for remote-mapped keys so Windows does not
+    /// double-execute native volume/back/search/apps/navigation actions.
     /// </summary>
-    public void ArmRemoteKeySuppression(ushort vk, int milliseconds = 300)
+    public void ArmRemoteKeySuppression(ushort vk, int milliseconds = 350)
     {
         lock (_suppressedSystemKeys)
         {
@@ -147,17 +150,22 @@ public sealed class LowLevelKeyboardGuard : IDisposable
         }
 
         if (Environment.TickCount64 <= Interlocked.Read(ref _remoteSuppressUntilTick) &&
-            IsRemappableSystemKey(vk))
+            IsRemappableRemoteKey(vk))
         {
-            bool suppress;
-            lock (_suppressedSystemKeys)
+            // Never suppress if KeyCorrelationEngine proves the key came from the main PC keyboard!
+            bool? isRemote = Correlation.TryDecideIsRemote(vk, isDown);
+            if (isRemote != false)
             {
-                suppress = _suppressedSystemKeys.Contains(vk);
-                if (isUp) _suppressedSystemKeys.Remove(vk);
-            }
-            if (suppress)
-            {
-                return (IntPtr)1;
+                bool suppress;
+                lock (_suppressedSystemKeys)
+                {
+                    suppress = _suppressedSystemKeys.Contains(vk);
+                    if (isUp) _suppressedSystemKeys.Remove(vk);
+                }
+                if (suppress)
+                {
+                    return (IntPtr)1;
+                }
             }
         }
 
@@ -200,9 +208,10 @@ public sealed class LowLevelKeyboardGuard : IDisposable
         return true;
     }
 
-    private static bool IsRemappableSystemKey(ushort vk) => vk is
+    private static bool IsRemappableRemoteKey(ushort vk) => vk is
         VkBrowserSearch or VkBrowserBack or VkBrowserHome or
-        VkApps or VkVolumeMute or VkVolumeDown or VkVolumeUp or VkSleep;
+        VkApps or VkVolumeMute or VkVolumeDown or VkVolumeUp or VkSleep or
+        0x08 or 0x0D or 0x1B or 0x21 or 0x22 or 0x25 or 0x26 or 0x27 or 0x28;
 
     public void Dispose() => Stop();
 
@@ -228,4 +237,3 @@ public sealed class LowLevelKeyboardGuard : IDisposable
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr GetModuleHandleW(string? lpModuleName);
 }
-
