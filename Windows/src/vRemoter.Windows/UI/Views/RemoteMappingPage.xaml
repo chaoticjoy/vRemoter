@@ -1,0 +1,105 @@
+<UserControl x:Class="vRemoter.Windows.UI.Views.RemoteMappingPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="112" />
+            <RowDefinition Height="14" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Trigger Configuration Panel -->
+        <Border Grid.Row="0" Style="{StaticResource ConsoleCardStyle}" Padding="18,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="16" />
+                    <ColumnDefinition Width="340" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock x:Name="TriggerTitle" Text="语音输入法与触发键" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource BrushText}" />
+                    <TextBlock x:Name="TriggerDesc"
+                               Text="遥控器语音键与电脑键盘都使用这个按键控制输入法。开关型快捷键选「点按切换」，按住说话选「按住说话」。"
+                               FontSize="12"
+                               Foreground="{StaticResource BrushSecondary}"
+                               TextWrapping="Wrap"
+                               Margin="0,6,0,0" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                    <ComboBox x:Name="ImeCombo" Style="{StaticResource ConsoleComboBoxStyle}" SelectionChanged="OnImeSelectionChanged" Margin="0,0,0,7" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="8" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <ComboBox x:Name="ModeCombo" Grid.Column="0" Style="{StaticResource ConsoleComboBoxStyle}" SelectionChanged="OnModeSelectionChanged" />
+                        <ComboBox x:Name="TriggerCombo" Grid.Column="2" Style="{StaticResource ConsoleComboBoxStyle}" SelectionChanged="OnTriggerSelectionChanged" />
+                    </Grid>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Device selector + Button inspector -->
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="225" />
+                <ColumnDefinition Width="14" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Supported Remotes -->
+            <Border Grid.Column="0" Style="{StaticResource ConsoleCardStyle}" Padding="14">
+                <DockPanel>
+                    <TextBlock x:Name="SupportedDevicesHeader" DockPanel.Dock="Top" Text="支持的设备" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource BrushSecondary}" Margin="0,0,0,10" />
+                    <TextBlock x:Name="ProfileNote" DockPanel.Dock="Bottom" Text="设置跟随型号，不绑定某一只遥控器" FontSize="10.5" Foreground="{StaticResource BrushGreen}" TextWrapping="Wrap" />
+                    <StackPanel>
+                        <Button x:Name="ChromecastCardBtn" Click="OnSelectChromecast" Background="Transparent" BorderThickness="0" Padding="0" HorizontalContentAlignment="Stretch" Margin="0,0,0,10" Cursor="Hand" />
+                        <Button x:Name="X6CardBtn" Click="OnSelectX6" Background="Transparent" BorderThickness="0" Padding="0" HorizontalContentAlignment="Stretch" Cursor="Hand" />
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+
+            <!-- Mapping Inspector -->
+            <Border Grid.Column="2" Style="{StaticResource ConsoleCardStyle}" Padding="14">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="124" />
+                        <ColumnDefinition Width="1" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" VerticalAlignment="Top" Margin="0,8,10,0">
+                        <Image x:Name="RemoteImage" Height="235" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" />
+                        <TextBlock x:Name="ButtonCountText" Text="14 个可映射键" FontSize="10.5" Foreground="{StaticResource BrushSecondary}" TextAlignment="Center" Margin="0,10,0,0" TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <Border Grid.Column="1" Background="{StaticResource BrushLineSoft}" />
+
+                    <DockPanel Grid.Column="2" Margin="12,0,0,0">
+                        <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
+                            <StackPanel>
+                                <TextBlock x:Name="RemoteTitleText" Text="Chromecast Voice Remote" FontSize="15.5" FontWeight="SemiBold" Foreground="{StaticResource BrushText}" />
+                                <TextBlock x:Name="RemoteSubText" Text="点击右侧菜单修改按键" FontSize="10.5" Foreground="{StaticResource BrushTertiary}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                <TextBlock x:Name="EnableMappingLabel" Text="启用映射" FontSize="11.5" Foreground="{StaticResource BrushSecondary}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <CheckBox x:Name="EnableMappingSwitch" Style="{StaticResource ConsoleSwitchStyle}" Click="OnEnableMappingClick" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                            <TextBlock x:Name="UnchangedHint" Text="未启用时保持系统原行为" FontSize="10.5" Foreground="{StaticResource BrushSecondary}" VerticalAlignment="Center" />
+                            <Button x:Name="ResetMappingBtn" Content="恢复默认" HorizontalAlignment="Right" Style="{StaticResource ConsoleButtonNeutral}" Padding="10,4" Click="OnResetMappingClick" />
+                        </Grid>
+
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel x:Name="ButtonsListPanel" />
+                        </ScrollViewer>
+                    </DockPanel>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>
+

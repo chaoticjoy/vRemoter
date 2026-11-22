@@ -1,0 +1,77 @@
+<UserControl x:Class="vRemoter.Windows.UI.Views.InputFocusPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="12" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Style="{StaticResource ConsoleCardStyle}" Padding="16,13">
+            <StackPanel>
+                <Grid>
+                    <TextBlock x:Name="FocusTitle" Text="应用切换与输入框自动聚焦" FontSize="15.5" FontWeight="SemiBold" Foreground="{StaticResource BrushText}" VerticalAlignment="Center" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <TextBlock x:Name="AutoSwitchLabel" Text="切回应用时自动聚焦" FontSize="11.5" Foreground="{StaticResource BrushSecondary}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <CheckBox x:Name="AutoFocusSwitch" Style="{StaticResource ConsoleSwitchStyle}" Click="OnToggleChanged" />
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock x:Name="FocusDesc"
+                           Text="切到下方勾选的应用时自动将光标拉回输入框；也可在「按键映射」里把任意按键设为「聚焦当前输入框」。"
+                           FontSize="11.5"
+                           Foreground="{StaticResource BrushSecondary}"
+                           TextWrapping="Wrap"
+                           Margin="0,7,0,9" />
+
+                <Grid>
+                    <StackPanel Orientation="Horizontal">
+                        <CheckBox x:Name="PullCodeCheck" Content="从代码区等位置切回时也拉回输入框" Foreground="{StaticResource BrushText}" FontSize="11" Click="OnToggleChanged" Margin="0,0,14,0" />
+                        <CheckBox x:Name="FocusBeforeVoiceCheck" Content="按语音键前检查聚焦" Foreground="{StaticResource BrushText}" FontSize="11" Click="OnToggleChanged" />
+                    </StackPanel>
+                    <TextBlock x:Name="FeedbackLabel" HorizontalAlignment="Right" FontSize="10.5" Foreground="{StaticResource BrushGreen}" TextTrimming="CharacterEllipsis" MaxWidth="220" />
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="2" Style="{StaticResource ConsoleCardStyle}" Padding="16">
+            <DockPanel>
+                <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
+                    <TextBlock x:Name="ConfiguredAppsHeader" Text="已配置应用 (0)" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource BrushText}" VerticalAlignment="Center" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button x:Name="AddAntigravityBtn" Content="+ 添加 Antigravity IDE" Style="{StaticResource ConsoleButtonGood}" Margin="0,0,8,0" Click="OnAddAntigravityClick" Visibility="Collapsed" />
+                        <Button x:Name="AddRunningBtn" Content="从运行中添加…" Style="{StaticResource ConsoleButtonNeutral}" Margin="0,0,8,0" Click="OnAddRunningClick" />
+                        <Button x:Name="BrowseExeBtn" Content="浏览 .exe…" Style="{StaticResource ConsoleButtonNeutral}" Click="OnBrowseExeClick" />
+                    </StackPanel>
+                </Grid>
+
+                <Border x:Name="BindingBanner"
+                        DockPanel.Dock="Top"
+                        Background="{StaticResource BrushAmberDeep}"
+                        BorderBrush="{StaticResource BrushAmber}"
+                        BorderThickness="1"
+                        CornerRadius="10"
+                        Padding="10"
+                        Margin="0,0,0,10"
+                        Visibility="Collapsed">
+                    <Grid>
+                        <StackPanel>
+                            <TextBlock x:Name="BindingTitleText" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource BrushAmber}" />
+                            <TextBlock x:Name="BindingMessageText" FontSize="11" Foreground="{StaticResource BrushText}" Margin="0,2,0,0" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <Button x:Name="CancelBindBtn" Content="取消" Style="{StaticResource ConsoleButtonNeutral}" Margin="0,0,6,0" Click="OnCancelBindClick" />
+                            <Button x:Name="ConfirmBindBtn" Content="确认指定" Style="{StaticResource ConsoleButtonGood}" Click="OnConfirmBindClick" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="AppsListPanel" />
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+    </Grid>
+</UserControl>
+

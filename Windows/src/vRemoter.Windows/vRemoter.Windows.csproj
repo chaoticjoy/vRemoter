@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <RootNamespace>vRemoter.Windows</RootNamespace>
+    <AssemblyName>vRemoter</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\vRemoter.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\vRemoter.Core\vRemoter.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\vRemoter.ico" />
+    <Resource Include="..\..\..\Design\vRemoter-Logo-v1\vRemoter-app-icon-v9.png" Link="Assets\vRemoterLogo.png" />
+    <Resource Include="..\..\..\Resources\RemoteImages\chromecast-voice-remote.png" Link="Assets\RemoteImages\chromecast-voice-remote.png" />
+    <Resource Include="..\..\..\Resources\RemoteImages\x6-remote.png" Link="Assets\RemoteImages\x6-remote.png" />
+  </ItemGroup>
+</Project>

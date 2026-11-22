@@ -1,0 +1,32 @@
+<Window x:Class="vRemoter.Windows.UI.Views.ShortcutRecorderDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="录制快捷键"
+        Width="400"
+        Height="220"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource BrushPanel}">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0">
+            <TextBlock x:Name="TitleLabel" Text="录制按键" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource BrushText}" />
+            <TextBlock x:Name="HintLabel" Text="请按下任意按键或组合键（例如 Ctrl + K），按 Esc 取消。" FontSize="11.5" Foreground="{StaticResource BrushSecondary}" Margin="0,4,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <Border Grid.Row="1" Background="{StaticResource BrushSurface2}" BorderBrush="{StaticResource BrushLine}" BorderThickness="1" CornerRadius="10" Margin="0,14">
+            <TextBlock x:Name="CapturedLabel" Text="等待按键…" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource BrushGreen}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="CancelBtn" Content="取消" Style="{StaticResource ConsoleButtonNeutral}" Margin="0,0,8,0" Click="OnCancelClick" />
+            <Button x:Name="SaveBtn" Content="保存" Style="{StaticResource ConsoleButtonGood}" IsEnabled="False" Click="OnSaveClick" />
+        </StackPanel>
+    </Grid>
+</Window>
+

@@ -1,0 +1,18 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+    <RepoVersionFile>$(MSBuildThisFileDirectory)..\VERSION</RepoVersionFile>
+    <Version Condition="'$(Version)' == '' and Exists('$(RepoVersionFile)')">$([System.IO.File]::ReadAllText('$(RepoVersionFile)').Trim())</Version>
+    <Version Condition="'$(Version)' == ''">1.4.0</Version>
+    <AssemblyVersion>$([System.Text.RegularExpressions.Regex]::Replace('$(Version)', '-.*', '')).0</AssemblyVersion>
+    <FileVersion>$(AssemblyVersion)</FileVersion>
+    <Product>vRemoter Community</Product>
+    <Company>ccc333cn</Company>
+    <Copyright>Copyright (c) 2026 vRemoter Community Contributors (MIT)</Copyright>
+  </PropertyGroup>
+</Project>
+

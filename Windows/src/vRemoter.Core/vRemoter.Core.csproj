@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>vRemoter.Core</RootNamespace>
+    <AssemblyName>vRemoter.Core</AssemblyName>
+  </PropertyGroup>
+</Project>
+

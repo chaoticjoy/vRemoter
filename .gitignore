@@ -4,6 +4,11 @@
 dist/
 DEL/
 Driver/build/
+**/bin/
+**/obj/
+Windows/dist/
+.vs/
+*.user
 
 *.app
 *.driver

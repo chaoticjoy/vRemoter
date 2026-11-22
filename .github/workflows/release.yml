@@ -18,8 +18,13 @@ env:
   UPSTREAM_PKG_SHA256: a86115de7f9a1fcc262f51dd494b80a5f660661c1d01afc6b6ad5ba488e09445
 
 jobs:
-  build-and-release:
+  build-macos:
     runs-on: macos-15
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      pkg_sha: ${{ steps.pkg.outputs.pkg_sha }}
+      dmg_sha: ${{ steps.pkg.outputs.dmg_sha }}
     steps:
       - uses: actions/checkout@v4
 
@@ -52,6 +57,7 @@ jobs:
           test -d "/tmp/upstream-expanded/Payload/Library/Audio/Plug-Ins/HAL/vRemoteDriver.driver"
 
       - name: Build PKG and DMG
+        id: pkg
         run: |
           VERSION="${{ steps.meta.outputs.version }}"
           export VREMOTER_DRIVER="/tmp/upstream-expanded/Payload/Library/Audio/Plug-Ins/HAL/vRemoteDriver.driver"
@@ -63,27 +69,104 @@ jobs:
           cp "dist/vRemoter-${VERSION}.pkg" "$PKG_OUT"
           cp "dist/vRemoter-${VERSION}.dmg" "$DMG_OUT"
 
-          PKG_SHA=$(shasum -a 256 "$PKG_OUT" | awk '{print $1}')
-          DMG_SHA=$(shasum -a 256 "$DMG_OUT" | awk '{print $1}')
+          echo "pkg_sha=$(shasum -a 256 "$PKG_OUT" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "dmg_sha=$(shasum -a 256 "$DMG_OUT" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dist
+          path: |
+            dist/vRemoter-Community-${{ steps.meta.outputs.version }}-AppleSilicon.pkg
+            dist/vRemoter-Community-${{ steps.meta.outputs.version }}-AppleSilicon.dmg
+
+  build-windows:
+    runs-on: windows-latest
+    outputs:
+      exe_sha: ${{ steps.winpkg.outputs.exe_sha }}
+      zip_sha: ${{ steps.winpkg.outputs.zip_sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Resolve Version
+        id: winmeta
+        shell: pwsh
+        run: |
+          $ver = (Get-Content -Raw VERSION).Trim()
+          echo "version=$ver" >> $env:GITHUB_OUTPUT
+
+      - name: Run Windows Core Tests
+        run: dotnet test Windows/vRemoter.sln -c Release
+
+      - name: Publish Single-File & Build Installer
+        id: winpkg
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.winmeta.outputs.version }}"
+          dotnet publish Windows/src/vRemoter.Windows/vRemoter.Windows.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:Version=$ver -o Windows/dist/publish
+
+          $zipOut = "Windows/dist/vRemoter-Community-$ver-Windows-x64-Portable.zip"
+          Compress-Archive -Path "Windows/dist/publish/*" -DestinationPath $zipOut -Force
+
+          iscc "/DMyAppVersion=$ver" Windows/Installer/vRemoter.iss
+          $exeOut = "Windows/dist/vRemoter-Community-$ver-Windows-x64-Setup.exe"
+
+          $exeSha = (Get-FileHash $exeOut -Algorithm SHA256).Hash.ToLowerInvariant()
+          $zipSha = (Get-FileHash $zipOut -Algorithm SHA256).Hash.ToLowerInvariant()
+          echo "exe_sha=$exeSha" >> $env:GITHUB_OUTPUT
+          echo "zip_sha=$zipSha" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-dist
+          path: |
+            Windows/dist/vRemoter-Community-${{ steps.winmeta.outputs.version }}-Windows-x64-Setup.exe
+            Windows/dist/vRemoter-Community-${{ steps.winmeta.outputs.version }}-Windows-x64-Portable.zip
+
+  publish-release:
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare Release Notes
+        run: |
+          VERSION="${{ needs.build-macos.outputs.version }}"
           {
             echo "## 安装说明"
             echo ""
+            echo "### macOS (Apple Silicon)"
             echo "- 支持 Apple 芯片（M 系列）Mac，macOS 12 或更高版本。"
             echo "- 首次安装请下载 \`vRemoter-Community-${VERSION}-AppleSilicon.pkg\`（包含 App 与 \`vRemoteDriver.driver\` 音频驱动）；仅升级 App 可下载 \`.dmg\`。"
             echo "- 安装包未签名，如被系统拦截请到 **系统设置 → 隐私与安全性 → 仍要打开**。"
             echo ""
+            echo "### Windows 10 / 11 (x64)"
+            echo "- 支持 Windows 10 (1809+) 与 Windows 11，推荐下载 \`vRemoter-Community-${VERSION}-Windows-x64-Setup.exe\`（便携免安装版为 \`.zip\`）。"
+            echo "- 首次使用需在主界面引导中一键安装 WHQL 签名虚拟声卡 **VB-Cable**。"
+            echo ""
             echo "### SHA-256"
-            echo "- \`vRemoter-Community-${VERSION}-AppleSilicon.pkg\`: \`${PKG_SHA}\`"
-            echo "- \`vRemoter-Community-${VERSION}-AppleSilicon.dmg\`: \`${DMG_SHA}\`"
+            echo "- \`vRemoter-Community-${VERSION}-AppleSilicon.pkg\`: \`${{ needs.build-macos.outputs.pkg_sha }}\`"
+            echo "- \`vRemoter-Community-${VERSION}-AppleSilicon.dmg\`: \`${{ needs.build-macos.outputs.dmg_sha }}\`"
+            echo "- \`vRemoter-Community-${VERSION}-Windows-x64-Setup.exe\`: \`${{ needs.build-windows.outputs.exe_sha }}\`"
+            echo "- \`vRemoter-Community-${VERSION}-Windows-x64-Portable.zip\`: \`${{ needs.build-windows.outputs.zip_sha }}\`"
           } > /tmp/release-notes.md
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          name: vRemoter ${{ steps.meta.outputs.version }}
+          tag_name: ${{ needs.build-macos.outputs.tag }}
+          name: vRemoter ${{ needs.build-macos.outputs.version }}
           body_path: /tmp/release-notes.md
           generate_release_notes: true
           files: |
-            dist/vRemoter-Community-${{ steps.meta.outputs.version }}-AppleSilicon.pkg
-            dist/vRemoter-Community-${{ steps.meta.outputs.version }}-AppleSilicon.dmg
+            artifacts/macos-dist/*
+            artifacts/windows-dist/*

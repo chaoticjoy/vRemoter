@@ -1,0 +1,102 @@
+<UserControl x:Class="vRemoter.Windows.UI.Views.StudioMixerPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="280" />
+            <RowDefinition Height="14" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- 3-Column Mixer -->
+        <Border Grid.Row="0" Background="{StaticResource BrushSurface2}" BorderBrush="{StaticResource BrushLineSoft}" BorderThickness="1" CornerRadius="18">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="226" />
+                    <ColumnDefinition Width="1" />
+                    <ColumnDefinition Width="226" />
+                    <ColumnDefinition Width="1" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- PC Mic -->
+                <Grid Grid.Column="0" Margin="18,16">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid Grid.Row="0">
+                        <StackPanel>
+                            <TextBlock x:Name="PcMicTitle" Text="电脑麦克风" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource BrushText}" />
+                            <TextBlock x:Name="PcMicSub" Text="系统物理输入" FontSize="11" Foreground="{StaticResource BrushSecondary}" Margin="0,2,0,0" />
+                        </StackPanel>
+                        <CheckBox x:Name="PcToggle" Style="{StaticResource ConsoleSwitchStyle}" HorizontalAlignment="Right" VerticalAlignment="Top" Click="OnPcToggleClick" />
+                    </Grid>
+                    <StackPanel Grid.Row="1" VerticalAlignment="Center" Margin="0,10">
+                        <TextBlock x:Name="PcDbText" Text="-120 dB" FontSize="11.5" FontFamily="Consolas" Foreground="{StaticResource BrushSecondary}" HorizontalAlignment="Right" Margin="0,0,0,6" />
+                        <Border Background="#0B0C0E" Height="14" CornerRadius="7" ClipToBounds="True">
+                            <Border x:Name="PcLevelBar" HorizontalAlignment="Left" Width="0" Background="{StaticResource BrushGreen}" CornerRadius="7" />
+                        </Border>
+                    </StackPanel>
+                    <TextBlock Grid.Row="2" x:Name="PcAlignmentHint" Text="120ms 延时对齐" FontSize="10.5" Foreground="{StaticResource BrushTertiary}" />
+                </Grid>
+
+                <Border Grid.Column="1" Background="{StaticResource BrushLineSoft}" />
+
+                <!-- Remote Mic -->
+                <Grid Grid.Column="2" Margin="18,16">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid Grid.Row="0">
+                        <StackPanel>
+                            <TextBlock x:Name="RemoteMicTitle" Text="遥控器麦克风" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource BrushText}" />
+                            <TextBlock x:Name="RemoteMicSub" Text="蓝牙语音遥控器" FontSize="11" Foreground="{StaticResource BrushSecondary}" Margin="0,2,0,0" />
+                        </StackPanel>
+                        <CheckBox x:Name="RemoteToggle" Style="{StaticResource ConsoleSwitchStyle}" HorizontalAlignment="Right" VerticalAlignment="Top" Click="OnRemoteToggleClick" />
+                    </Grid>
+                    <StackPanel Grid.Row="1" VerticalAlignment="Center" Margin="0,10">
+                        <TextBlock x:Name="RemoteDbText" Text="-120 dB" FontSize="11.5" FontFamily="Consolas" Foreground="{StaticResource BrushSecondary}" HorizontalAlignment="Right" Margin="0,0,0,6" />
+                        <Border Background="#0B0C0E" Height="14" CornerRadius="7" ClipToBounds="True">
+                            <Border x:Name="RemoteLevelBar" HorizontalAlignment="Left" Width="0" Background="{StaticResource BrushGreen}" CornerRadius="7" />
+                        </Border>
+                    </StackPanel>
+                    <TextBlock Grid.Row="2" x:Name="RemoteHintText" Text="按遥控器语音键测试收音" FontSize="10.5" Foreground="{StaticResource BrushAmber}" TextWrapping="Wrap" />
+                </Grid>
+
+                <Border Grid.Column="3" Background="{StaticResource BrushLineSoft}" />
+
+                <!-- Output Channel -->
+                <Grid Grid.Column="4" Margin="18,16">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel Grid.Row="0">
+                        <TextBlock x:Name="OutputTitle" Text="混音输出总线" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource BrushText}" />
+                        <TextBlock x:Name="OutputSub" Text="48 kHz 双声道内核回环" FontSize="11" Foreground="{StaticResource BrushSecondary}" Margin="0,2,0,0" />
+                    </StackPanel>
+                    <Border Grid.Row="1" Background="#121418" BorderBrush="{StaticResource BrushLineSoft}" BorderThickness="1" CornerRadius="12" Padding="12" VerticalAlignment="Center">
+                        <StackPanel>
+                            <TextBlock x:Name="OutputRouteName" Text="CABLE Input → CABLE Output" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource BrushGreen}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="OutputRouteDetail" Text="供豆包/微信输入法读取" FontSize="11" Foreground="{StaticResource BrushSecondary}" Margin="0,4,0,0" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <StackPanel Grid.Row="2" Orientation="Horizontal">
+                        <Button x:Name="RefreshAudioBtn" Content="刷新音频设备" Style="{StaticResource ConsoleButtonNeutral}" Click="OnRefreshAudioClick" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- Status Panel -->
+        <Border Grid.Row="2" Style="{StaticResource ConsoleCardStyle}" Padding="16,10" CornerRadius="18">
+            <UniformGrid x:Name="StatusRowsGrid" Columns="1" Rows="5" />
+        </Border>
+    </Grid>
+</UserControl>
+
