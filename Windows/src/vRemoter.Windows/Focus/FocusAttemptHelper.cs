@@ -53,11 +53,6 @@ internal static class FocusAttemptHelper
 
         if (target is null)
         {
-            if (entry?.Mode == InputFocusMode.Manual && !allowOverrideOtherEditor && entry.Locator is null)
-            {
-                if (updateStoreState) store.UpdateState(InputFocusResultStatus.NeedsBinding, app.AppIdentifier);
-                return InputFocusResultStatus.NeedsBinding;
-            }
             target = InputFocusDiscovery.DiscoverTarget(backend, window, allowSingleFallback);
         }
 

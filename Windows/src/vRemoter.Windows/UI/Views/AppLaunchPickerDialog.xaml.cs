@@ -12,14 +12,17 @@ namespace vRemoter.Windows.UI.Views;
 public partial class AppLaunchPickerDialog : Window
 {
     private readonly Action<RemoteAppLaunchConfig> _onSave;
+    private readonly InputFocusStore? _focusStore;
     private FocusAppInfo? _selected;
 
     public AppLaunchPickerDialog(
         string buttonTitle,
         RemoteAppLaunchConfig? existing,
-        Action<RemoteAppLaunchConfig> onSave)
+        Action<RemoteAppLaunchConfig> onSave,
+        InputFocusStore? focusStore = null)
     {
         _onSave = onSave;
+        _focusStore = focusStore;
         InitializeComponent();
         WindowsVersionInfo.ApplyDarkWindowFrame(this);
 
@@ -31,6 +34,8 @@ public partial class AppLaunchPickerDialog : Window
         BrowseBtn.Content = L10n.Text("浏览 .exe…", "Browse .exe…");
         RunningHint.Text = L10n.Text("或从当前运行中的应用快速选择：", "Or pick a running app:");
         AutoFocusCheck.Content = L10n.Text("打开后自动将输入焦点切入输入框", "Auto-focus input box after opening");
+        AddAutoFocusCheck.Content = L10n.Text("同时加入「切换应用自动聚焦」名单", "Also add to Switch-App Auto-Focus list");
+        AddAutoFocusCheck.Visibility = _focusStore is not null ? Visibility.Visible : Visibility.Collapsed;
         CancelBtn.Content = L10n.Text("取消", "Cancel");
         SaveBtn.Content = L10n.Text("保存映射", "Save Mapping");
 
@@ -99,6 +104,10 @@ public partial class AppLaunchPickerDialog : Window
     private void OnSaveClick(object sender, RoutedEventArgs e)
     {
         if (_selected?.AppPath is null) return;
+        if (AddAutoFocusCheck.IsChecked == true)
+        {
+            _focusStore?.AddOrEnableApp(_selected.AppIdentifier, _selected.Name, _selected.AppPath);
+        }
         _onSave(new RemoteAppLaunchConfig(
             _selected.AppIdentifier,
             _selected.AppPath,

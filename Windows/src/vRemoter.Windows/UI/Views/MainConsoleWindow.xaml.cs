@@ -35,7 +35,7 @@ public partial class MainConsoleWindow : Window
         StopMicButton.Content = L10n.Text("结束录音", "Stop");
 
         _mixerPage = new StudioMixerPage(vm);
-        _mappingPage = new RemoteMappingPage(vm, mappingStore);
+        _mappingPage = new RemoteMappingPage(vm, mappingStore, focusStore);
         _focusPage = new InputFocusPage(vm, focusStore, focusCoordinator);
 
         _vm.PropertyChanged += OnViewModelChanged;

@@ -23,6 +23,7 @@ public sealed class InputFocusCoordinator : IDisposable
         bool IsPostLaunch)
     {
         public int ScanAttempts { get; set; }
+        public int ConfirmAttempts { get; set; }
     }
 
     private readonly InputFocusStore _store;
@@ -200,6 +201,7 @@ public sealed class InputFocusCoordinator : IDisposable
 
             _store.SaveLocator(locator, session.AppIdentifier);
             _store.SetBindingState(new InputFocusBindingState());
+            LogService.Write($"[INPUT-FOCUS] bound {session.AppIdentifier} locator={locator is not null}");
             _store.SetFeedback(locator is not null
                 ? L10n.Text("已保存输入框结构指纹，重启后自动恢复", "Saved input locator; persists across restarts")
                 : L10n.Text("本次已绑定输入框（当前会话内有效）", "Input bound for current session"));
@@ -346,6 +348,7 @@ public sealed class InputFocusCoordinator : IDisposable
 
         if (_keyboardGuard.InputActivityStamp != job.InitialStamp)
         {
+            LogService.Write($"[INPUT-FOCUS] switch-focus aborted due to user input on {job.AppIdentifier}");
             _pendingJob = null;
             StopTimerIfIdle();
             if (_store.GetSnapshot().Apps.ContainsKey(job.AppIdentifier))
@@ -369,6 +372,19 @@ public sealed class InputFocusCoordinator : IDisposable
             job.AllowOverrideNonSearchEditor,
             updateStoreState: entry is not null);
 
+        if (status == InputFocusResultStatus.Confirming)
+        {
+            job.ConfirmAttempts++;
+            if (job.ConfirmAttempts >= 4)
+            {
+                if (entry is not null) _store.UpdateState(InputFocusResultStatus.Unconfirmed, job.AppIdentifier);
+                LogService.Write($"[INPUT-FOCUS] switch-focus {job.AppIdentifier} -> {InputFocusResultStatus.Unconfirmed}");
+                _pendingJob = null;
+                StopTimerIfIdle();
+            }
+            return;
+        }
+
         if (status is InputFocusResultStatus.Loading or InputFocusResultStatus.ManualNeeded or
             InputFocusResultStatus.NeedsBinding or InputFocusResultStatus.Rebind or InputFocusResultStatus.Unavailable)
         {
@@ -376,12 +392,14 @@ public sealed class InputFocusCoordinator : IDisposable
             int maxAttempts = job.IsPostLaunch ? 16 : 8;
             if (job.ScanAttempts >= maxAttempts || status == InputFocusResultStatus.NeedsBinding)
             {
+                LogService.Write($"[INPUT-FOCUS] switch-focus gave up {job.AppIdentifier} -> {status}");
                 _pendingJob = null;
                 StopTimerIfIdle();
             }
         }
         else
         {
+            LogService.Write($"[INPUT-FOCUS] switch-focus {job.AppIdentifier} -> {status}");
             _pendingJob = null;
             StopTimerIfIdle();
         }

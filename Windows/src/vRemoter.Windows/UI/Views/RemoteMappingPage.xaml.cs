@@ -6,6 +6,7 @@ using System.Windows.Media.Imaging;
 using vRemoter.Core.Localization;
 using vRemoter.Core.Mapping;
 using vRemoter.Core.Session;
+using vRemoter.Windows.Focus;
 using vRemoter.Windows.Input;
 using vRemoter.Windows.SystemSupport;
 
@@ -15,13 +16,15 @@ public partial class RemoteMappingPage : UserControl
 {
     private readonly ConsoleViewModel _vm;
     private readonly RemoteMappingStore _mappings;
+    private readonly InputFocusStore? _focusStore;
     private SupportedRemoteId _selectedRemote = SupportedRemoteId.Chromecast;
     private bool _suppressSelectionEvents;
 
-    public RemoteMappingPage(ConsoleViewModel vm, RemoteMappingStore mappings)
+    public RemoteMappingPage(ConsoleViewModel vm, RemoteMappingStore mappings, InputFocusStore? focusStore = null)
     {
         _vm = vm;
         _mappings = mappings;
+        _focusStore = focusStore;
         InitializeComponent();
 
         ApplyLabels();
@@ -298,7 +301,7 @@ public partial class RemoteMappingPage : UserControl
         var dialog = new AppLaunchPickerDialog(button.Title, existing, cfg =>
         {
             _mappings.SetAppLaunchConfig(cfg, button, _selectedRemote);
-        }) { Owner = Window.GetWindow(this) };
+        }, _focusStore) { Owner = Window.GetWindow(this) };
         dialog.ShowDialog();
         RefreshMappingPanel();
     }

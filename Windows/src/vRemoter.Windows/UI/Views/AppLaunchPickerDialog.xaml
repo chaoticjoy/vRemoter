@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="打开指定应用"
         Width="480"
-        Height="390"
+        Height="418"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         Background="{StaticResource BrushPanel}">
@@ -40,6 +40,7 @@
 
         <StackPanel Grid.Row="3" Margin="0,10,0,14">
             <CheckBox x:Name="AutoFocusCheck" Content="打开后自动将输入焦点切入输入框" Foreground="{StaticResource BrushText}" FontSize="12" IsChecked="True" Margin="0,0,0,6" />
+            <CheckBox x:Name="AddAutoFocusCheck" Content="同时加入「切换应用自动聚焦」名单" Foreground="{StaticResource BrushText}" FontSize="12" IsChecked="True" />
         </StackPanel>
 
         <Grid Grid.Row="4">

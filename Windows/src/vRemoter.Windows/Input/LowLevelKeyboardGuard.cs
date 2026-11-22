@@ -125,8 +125,6 @@ public sealed class LowLevelKeyboardGuard : IDisposable
             return CallNextHookEx(_hookHandle, nCode, wParam, lParam);
         }
 
-        Interlocked.Increment(ref _inputActivityStamp);
-
         int msg = wParam.ToInt32();
         bool isDown = msg is WmKeyDown or WmSysKeyDown;
         bool isUp = msg is WmKeyUp or WmSysKeyUp;
@@ -169,8 +167,30 @@ public sealed class LowLevelKeyboardGuard : IDisposable
             }
         }
 
+        if (ShouldTrackUserActivity(isDown, vk))
+        {
+            Interlocked.Increment(ref _inputActivityStamp);
+        }
         ObservePhysicalTrigger(vk, isDown, activeChord);
         return CallNextHookEx(_hookHandle, nCode, wParam, lParam);
+    }
+
+    private bool ShouldTrackUserActivity(bool isDown, ushort vk)
+    {
+        // Only treat deliberate non-switch key presses as typing activity;
+        // ignore key releases (e.g. Alt/Win up right after Alt+Tab / Win+Tab).
+        if (!isDown) return false;
+        if (vk is 0x10 or 0x11 or 0x12 or 0x5B or 0x5C or (>= 0xA0 and <= 0xA5))
+        {
+            return false;
+        }
+        if (vk == 0x09 && (_physicalKeysDown.Contains(0x12) || _physicalKeysDown.Contains(0xA4) ||
+                           _physicalKeysDown.Contains(0xA5) || _physicalKeysDown.Contains(0x5B) ||
+                           _physicalKeysDown.Contains(0x5C)))
+        {
+            return false;
+        }
+        return true;
     }
 
     private void ObservePhysicalTrigger(ushort vk, bool isDown, TriggerKeyChord chord)

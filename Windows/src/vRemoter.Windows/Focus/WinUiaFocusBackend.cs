@@ -192,7 +192,7 @@ public sealed class WinUiaFocusBackend : IFocusSessionBackend<UiaNode>
 
     public bool IsFocused(UiaNode node)
     {
-        try { return (bool)(ReadProp(node.Element, AutomationElement.HasKeyboardFocusProperty) ?? false); }
+        try { return (bool)(ReadLiveProp(node.Element, AutomationElement.HasKeyboardFocusProperty) ?? false); }
         catch { return false; }
     }
 
@@ -350,6 +350,19 @@ public sealed class WinUiaFocusBackend : IFocusSessionBackend<UiaNode>
     private static ControlType? ReadControlType(AutomationElement element) =>
         ReadProp(element, AutomationElement.ControlTypeProperty) as ControlType;
 
+    private static object? ReadLiveProp(AutomationElement element, AutomationProperty property)
+    {
+        try
+        {
+            object? val = element.GetCurrentPropertyValue(property, ignoreDefaultValue: true);
+            return val == AutomationElement.NotSupported ? null : val;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static object? ReadProp(AutomationElement element, AutomationProperty property)
     {
         try
@@ -362,15 +375,7 @@ public sealed class WinUiaFocusBackend : IFocusSessionBackend<UiaNode>
         }
         catch { }
 
-        try
-        {
-            object? val = element.GetCurrentPropertyValue(property, ignoreDefaultValue: true);
-            return val == AutomationElement.NotSupported ? null : val;
-        }
-        catch
-        {
-            return null;
-        }
+        return ReadLiveProp(element, property);
     }
 
     [DllImport("user32.dll")]

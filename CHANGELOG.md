@@ -2,26 +2,40 @@
 
 ## v1.4.0 · 2026-11-22
 
+> 从本版本起，vRemoter 社区版正式成为 **macOS + Windows 双平台项目**：保留完整 macOS（Apple Silicon，macOS 12+）支持的同时，新增对 **Windows 10（1809 / Build 17763+）与 Windows 11（x64）** 的原生桌面端适配。
+
 ### 新功能
 
-- **Windows 10 / 11（x64）桌面端支持**：移植完整功能至 Windows 平台，支持 Chromecast / X6 双遥控器 BLE ATVV 语音直连、WASAPI + VB-Cable 双路麦克风 120ms 对齐混音、豆包输入法 / 微信输入法录音状态实时闭环监控、左右分侧触发键与点按/长按双模式、按键重映射、深色浮层应用切换器、打开指定应用与 UIA3 输入框自动聚焦。
-- **打开指定应用并聚焦输入框**：按键映射新增「打开指定应用…」，可选择任意桌面应用（macOS `.app` / Windows `.exe`）；按下遥控器按键即可拉起或切到该应用，并在窗口就绪后自动将输入焦点切入输入框。
+- **macOS & Windows 双平台原生支持**：
+  - **macOS**：支持 Apple Silicon（macOS 12 及以上），延续 `vRemoteDriver.driver`、ATVV 语音直连、按住/点按触发、应用切换自动聚焦与 `.pkg` / `.dmg` 安装包。
+  - **Windows 10 / 11（x64）**：原生 .NET 8 / WPF 桌面端，支持 Chromecast / X6 双遥控器 BLE ATVV 语音直连、WASAPI + VB-Cable 双路麦克风 120ms 对齐混音、豆包输入法 / 微信输入法录音状态实时闭环监控、左右分侧触发键与点按/长按双模式、按键重映射、深色浮层应用切换器、打开指定应用与 UIA3 输入框自动聚焦。
+- **打开指定应用并聚焦输入框**：按键映射新增「打开指定应用…」，可选择任意桌面应用（macOS `.app` / Windows `.exe`）；Windows 端弹窗同步提供「同时加入『切换应用自动聚焦』名单」选项（默认勾选），按下遥控器按键即可拉起或切到该应用并自动切入输入框。
 - **切换应用时自动聚焦输入框**：控制台新增「应用聚焦」标签页，支持维护自动聚焦应用列表（内置一键添加 Antigravity IDE、从运行中添加、浏览本地应用）。通过遥控器「切换应用」、系统切换快捷键或鼠标切回这些应用时，自动将焦点拉回输入框；支持「按语音键前检查聚焦」。
 - **一键聚焦当前输入框**：按键映射新增「聚焦当前输入框」，按下可立即扫描当前前台应用并把光标切入其输入框（支持从代码编辑区等非聊天区直接拉回输入框）。
 - **结构指纹指定输入框**：针对同一窗口存在多个文本输入区的应用（如 IDE 同时打开代码区和聊天区），支持 30 秒交互式「指定输入框」绑定，生成与版本绑定的无文本 SHA-256 结构指纹（`v2`），重启后自动找回。
-- **GitHub Actions 自动构建与分平台发布**：支持 CI 自动测试与构建，Release 工作流支持打 `v*` 标签双平台一键发布，也支持手动单独触发 Windows 或 macOS 发布流程。
+- **GitHub Actions 双平台自动构建与发布**：支持 CI 自动测试与构建，Release 工作流支持打 `v*` 标签同时打包发布 macOS（`.pkg` / `.dmg`）与 Windows（`.exe` 安装包 / `.zip` 便携版），也支持手动单独触发任一平台发布流程。
 
 ### 改进与修复
 
 - **修复 Windows 按键映射页面下拉框文字不可见问题**：重写 `ConsoleComboBoxStyle` 与 `ConsoleComboBoxItemStyle` 深色控件模板，解决 Windows WPF 默认亮色下拉背景与白色前景色冲突导致文字看不见的问题，并优化标签页与设备卡片悬停样式。
 - **修复 Windows 遥控器按键映射链路与兼容多类 HID / BLE GATT 上报**：
-  - 新增 `WudfHostHidTap` 原生 x64 零线程无锁环形缓冲区旁路引擎：针对 Google Chromecast Voice Remote（`18D1:9450`）在 Windows 10/11 下 3 字节 Consumer Control 报文 `[0x02, usage_lo, usage_hi]`（含电源 `0x019E`、信源 `0x0189`、方向键 `0x0042..0x0045`、确认 `0x0041`、返回 `0x0224`、主页 `0x0223`、音量/静音 `0x00E9`/`0x00EA`/`0x00E2`、YouTube `0x0077`、Netflix `0x0078`）在 `WUDFHost.exe`（`IOCTL 0x80018483`）内被系统 UMDF 蓝牙驱动消费而不向 `RawInput` / `ReadFile` 转发的问题，直接从 `WUDFHost.exe` 提取 3 字节按键报告并原地清零已重映射按键以避免系统双发；
+  - 升级 `WudfHostHidTap` + `WudfAlpcGattParser` 原生 x64 旁路捕获引擎：针对 Google Chromecast Voice Remote（`18D1:9450`）部分按键发送 8 字节 BLE GATT（`0x2A4D`）报告超出 2 字节系统 Report Map、在 `WUDFHost.exe` 触发 `STATUS_BUFFER_TOO_SMALL (0xC0000023)` 而无法到达 `RawInput` / `ReadFile` 的问题，新增 `NtAlpcSendWaitReceivePort`（ALPC）WinRT `MEOW` / `IID_IBuffer` 报文提取与 `ChromecastButtonDecoder` 状态差分映射，并兼容 `IOCTL 0x80018483` 3 字节 Consumer Control 报文提取与原地清零抑制；
+  - 系统调用号（`NtDeviceIoControlFile` / `NtReadFile` / `NtWriteFile` / `NtRemoveIoCompletionEx` / `NtAlpcSendWaitReceivePort`）在运行时从本机 `ntdll.dll` 动态提取，不硬编码特定小版本的 syscall 表；
   - 自动守护与修复 `BTHLEDevice\{00001812-...}` 系统 `hidbthle.inf`（`mshidumdf`）驱动绑定，支持离线/休眠态 PnP 节点自愈与蓝牙电台自动解卡重连，并在按键活动时即时唤醒 ATVV 语音通道重连；
   - 修复 Windows BLE `VID&0118d1_PID&9450` / `VID&0002xxxx_PID&xxxx` 设备路径解析缺陷与 `cfgmgr32` 父设备节点链回溯解析；
   - 升级 `RawInputMonitor`（支持 `RIDI_PREPARSEDDATA` + `HidP_GetUsagesEx` / `HidP_GetUsages`）与 `KeyCorrelationEngine` 设备级按键来源关联引擎。
-- **适配 Electron / WebView 桌面应用（如 Antigravity IDE）**：自动请求 `AXEnhancedUserInterface`（macOS）/ UIA3（Windows）唤醒辅助功能树，并同时识别常见聊天输入框属性。
+- **修复 Windows 切回应用时自动聚焦未及时切入输入框的问题**：
+  - 修复 `WinUiaFocusBackend.IsFocused` 读取 `SubtreeCacheRequest` 过期缓存的问题，改为实时读取 `HasKeyboardFocusProperty`；
+  - `InputFocusCoordinator` 对 `Confirming` 状态增加 250ms 轮询复检（最多 4 次）与切换日志，等待目标应用激活后再确认焦点；
+  - 修复 `LowLevelKeyboardGuard` 在松键（如 `Alt+Tab` / `Win+Tab` 切窗释放修饰键）或遥控器按键触发时误自增输入活动计数并中止自动聚焦的问题；
+  - 当手动绑定未生成持久化结构指纹（`Locator` 为空）时，自动切换回退至自动发现流程，避免误卡在 `NeedsBinding`。
+- **适配 Electron / WebView 桌面应用（如 Antigravity IDE）**：自动请求 `AXEnhancedUserInterface`（macOS）/ `WM_GETOBJECT` 与 UIA3（Windows）唤醒辅助功能树，并同时识别常见聊天输入框属性。
 - **解决切回 IDE 时焦点停留在代码编辑区的问题**：新增「从代码区等位置切回时也拉回输入框」选项（默认开启），从代码编辑区切回时可正确拉回聊天输入框，同时继续保护搜索框、重命名框、密码框与弹窗菜单不被误抢焦点。
-- **修复后台线程前台应用状态滞后与误中断问题**：前台应用改由主线程激活事件同步与实时前台查询联合获取；移除触控板惯性滚动对输入打断判定的干扰。
+- **修复后台线程前台应用状态滞后与误中断问题**：macOS 前台应用改由主线程激活事件同步与实时前台查询联合获取，并移除触控板惯性滚动对输入打断判定的干扰。
+- **Windows 系统兼容性与支持边界**：
+  - **支持系统与架构**：Windows 10 `1809`（Build `17763`）及以上版本（如 21H2 / 22H2）与 Windows 11（Build `22000+`），仅支持 **x64**（安装包 `MinVersion=10.0.17763`、`x64compatible`）；深色标题栏按 Build 号（`17763+` / `18985+`）与 Win11 圆角（`22000+`）自动适配。
+  - **不支持环境**：Windows 7 / 8 / 8.1、Windows 10 `1803` 及更早版本、Windows ARM64 与 32 位 x86（`WUDFHost.exe` 旁路桩为 x64 原生机器码）。
+  - **前置依赖与实机覆盖**：需以管理员权限运行（已在 manifest 声明），语音输入法混音需安装虚拟声卡驱动（如 VB-Cable）；Chromecast 遥控器整条语音 + ALPC 全按键映射链路已在 **Windows 10 Build 19045（x64）** 实机验证通过，Windows 11（x64）基于通用 WinRT/UIA3/动态 syscall 设计理论兼容，仍建议实机进一步验证。
 - **维护仓库迁移**：更新源切换至 `chaoticjoy/vRemoter`（保留原 Bundle ID，macOS 升级无需重新授予权限）。
 
 ## v1.3.2 社区版 · 2026-11-12
