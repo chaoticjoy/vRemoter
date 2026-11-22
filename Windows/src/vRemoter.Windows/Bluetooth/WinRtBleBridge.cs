@@ -289,7 +289,7 @@ public sealed partial class WinRtBleBridge : IDisposable
         }
     }
 
-    private static async Task SubscribeAsync(GattCharacteristic ch, Windows.Foundation.TypedEventHandler<GattCharacteristic, GattValueChangedEventArgs> handler)
+    private static async Task SubscribeAsync(GattCharacteristic ch, global::Windows.Foundation.TypedEventHandler<GattCharacteristic, GattValueChangedEventArgs> handler)
     {
         ch.ValueChanged += handler;
         var mode = ch.CharacteristicProperties.HasFlag(GattCharacteristicProperties.Notify)

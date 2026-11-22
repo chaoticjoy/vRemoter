@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Windows;
+using vRemoter.Core.Focus;
 using vRemoter.Core.Localization;
 using vRemoter.Core.Mapping;
 using vRemoter.Core.Session;

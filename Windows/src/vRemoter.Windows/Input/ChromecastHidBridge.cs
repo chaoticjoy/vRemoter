@@ -1,3 +1,4 @@
+using vRemoter.Core.Focus;
 using vRemoter.Core.Mapping;
 using vRemoter.Windows.SystemSupport;
 
