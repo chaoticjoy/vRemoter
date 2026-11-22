@@ -18,9 +18,9 @@ public readonly record struct WudfTapAlpcEntry(
 /// </summary>
 public static class WudfAlpcStubEmitter
 {
-    public const int SlotSize = 512;
+    public const int SlotSize = 1024;
     public const int SlotCount = 16;
-    public const int MaxCapturedPayload = 496;
+    public const int MaxCapturedPayload = 1008;
 
     public static void EmitAlpcStub(
         byte[] page,
@@ -137,11 +137,11 @@ public static class WudfAlpcStubEmitter
         Emit(0xB9);
         EmitU32((uint)MaxCapturedPayload);  // mov ecx, 496
 
-        // r10 = offTraceBuffer + ((xadd(offWriteSeq, 1) & 15) << 9)
+        // r10 = offTraceBuffer + ((xadd(offWriteSeq, 1) & 15) << 10)
         Emit(0x41, 0xBA, 0x01, 0x00, 0x00, 0x00); // mov r10d, 1
         EmitRipRel(offWriteSeq, 0xF0, 0x44, 0x0F, 0xC1, 0x15);
         Emit(0x41, 0x83, 0xE2, 0x0F);       // and r10d, 15
-        Emit(0x49, 0xC1, 0xE2, 0x09);       // shl r10, 9 (* 512)
+        Emit(0x49, 0xC1, 0xE2, 0x0A);       // shl r10, 10 (* 1024)
         EmitRipRel(offTraceBuffer, 0x4C, 0x8D, 0x1D);
         Emit(0x4D, 0x01, 0xDA);             // add r10, r11
 

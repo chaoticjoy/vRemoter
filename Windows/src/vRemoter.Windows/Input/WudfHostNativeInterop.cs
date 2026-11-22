@@ -268,6 +268,35 @@ internal static class WudfHostNativeInterop
     [DllImport("kernel32.dll", SetLastError = true)]
     internal static extern bool FlushInstructionCache(IntPtr hProcess, IntPtr lpBaseAddress, UIntPtr dwSize);
 
+    internal static uint ReadLocalSyscallId(IntPtr fnAddr)
+    {
+        if (fnAddr == IntPtr.Zero) return 0;
+        byte[] buf = new byte[16];
+        Marshal.Copy(fnAddr, buf, 0, buf.Length);
+        return WudfHidTapStubBuilder.TryExtractSyscallId(buf, out uint id) ? id : 0;
+    }
+
+    internal static bool PatchRemoteJump(IntPtr hProc, IntPtr fnAddr, IntPtr stubAddr)
+    {
+        byte[] jmpPatch = WudfHidTapStubBuilder.BuildRelJmp8(fnAddr.ToInt64(), stubAddr.ToInt64());
+        if (!VirtualProtectEx(hProc, fnAddr, (UIntPtr)8, PageExecuteReadWrite, out uint oldProtect))
+        {
+            return false;
+        }
+        bool patched = WriteProcessMemory(hProc, fnAddr, jmpPatch, jmpPatch.Length, out int patchWritten) &&
+                       patchWritten == jmpPatch.Length;
+        _ = FlushInstructionCache(hProc, fnAddr, (UIntPtr)8);
+        _ = VirtualProtectEx(hProc, fnAddr, (UIntPtr)8, oldProtect, out _);
+        return patched;
+    }
+
+    internal static void WriteUInt32Flag(IntPtr hProc, IntPtr pageAddr, int fieldOffset, bool enabled)
+    {
+        byte[] val = new byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(val, enabled ? 1U : 0U);
+        _ = WriteProcessMemory(hProc, IntPtr.Add(pageAddr, fieldOffset), val, 4, out _);
+    }
+
     [DllImport("advapi32.dll", SetLastError = true)]
     internal static extern bool OpenProcessToken(IntPtr processHandle, uint desiredAccess, out IntPtr tokenHandle);
 

@@ -207,5 +207,54 @@ public sealed class HidInputUpgradeTests
         Assert.Equal(0x2A, decoded.Sequence);
         Assert.Equal(new byte[] { 0x9E, 0x01 }, decoded.ToPayload());
     }
+
+    [Fact]
+    public void WudfAlpcGattParser_DecodesCapturedWin10AlpcPacketsAndMapsButtons()
+    {
+        // Exact 456-byte port=0x0598 ALPC ReceiveMessage captured from Windows 10 Build 19045 WUDFHost.exe (pid=6900)
+        const string selectHex =
+            "00-00-00-00-00-00-00-00-01-00-00-00-32-01-00-00-08-00-00-00-03-00-00-00-00-00-00-00-00-00-00-00-" +
+            "00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-05-84-00-00-F4-1A-00-00-EF-28-4D-20-ED-1C-CD-B9-" +
+            "05-00-07-00-01-00-00-00-00-00-00-00-E6-35-AF-DE-21-2E-CC-4B-9C-35-E5-91-7A-D4-E5-46-00-00-00-00-" +
+            "00-00-00-00-00-00-00-00-9E-5F-10-BC-E6-75-00-00-3C-6E-14-BC-E6-75-DD-01-6B-0D-B0-A9-A4-56-EC-41-" +
+            "83-4F-07-7E-3D-91-CA-5D-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-" +
+            "00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-02-00-" +
+            "00-00-00-00-94-00-00-00-00-00-00-00-94-00-00-00-4D-45-4F-57-04-00-00-00-7C-02-8E-58-66-5A-7A-4C-" +
+            "8D-B4-29-40-47-36-9C-53-65-1F-22-15-8D-AC-47-4B-9E-31-EC-32-8B-14-AE-E9-00-00-00-00-CA-01-00-00-" +
+            "4D-45-4F-57-01-00-00-00-7C-02-8E-58-66-5A-7A-4C-8D-B4-29-40-47-36-9C-53-80-0E-00-00-05-00-00-00-" +
+            "BB-E1-A5-BB-A7-4C-EB-7A-2E-6B-1C-6E-C8-4C-CC-84-27-00-00-00-98-1A-FF-FF-C5-2C-FD-C7-39-62-2E-45-" +
+            "00-00-00-00-1C-00-00-00-28-00-2B-00-4D-2A-00-00-00-00-00-10-80-00-00-80-5F-9B-34-FB-12-00-00-00-" +
+            "28-00-29-00-00-00-02-00-00-00-00-00-40-00-00-00-00-00-00-00-40-00-00-00-4D-45-4F-57-04-00-00-00-" +
+            "E0-0F-5A-90-53-BC-DF-11-8C-49-00-1E-4F-C6-86-DA-34-93-C2-F6-DC-47-97-43-91-50-F5-49-CF-1D-48-61-" +
+            "00-00-00-00-10-00-00-00-08-00-00-00-08-00-00-00-07-00-00-00-00-00-00-00-00-00-00-00-F8-17-2D-BD-8D-7A-DD-01";
+        byte[] selectBytes = Convert.FromHexString(selectHex.Replace("-", string.Empty));
+        var entry = new WudfTapAlpcEntry(0, 0, 0x0598, 456, 496, 1, 1, selectBytes);
+
+        Assert.True(WudfAlpcGattParser.TryExtractValueChangedReport(in entry, out byte[] payload, out ushort charUuid));
+        Assert.Equal((ushort)0x2A4D, charUuid);
+        Assert.Equal(new byte[] { 0x07, 0, 0, 0, 0, 0, 0, 0 }, payload);
+        Assert.Equal("07", ChromecastButtonDecoder.ResolveButtonId(0x000C, 0x0001, 0x01, payload, []));
+
+        // Verify all observed button IDs (Up=03, Left=05, Right=06, Select=07, Back=0B, Vol+=0C, Vol-=0D, Release=00)
+        byte[] testPayload = (byte[])payload.Clone();
+        foreach (string expectedId in new[] { "01", "03", "04", "05", "06", "07", "08", "0A", "0B", "0C", "0D", "0E", "0F", "11" })
+        {
+            testPayload[0] = Convert.ToByte(expectedId, 16);
+            Assert.Equal(expectedId, ChromecastButtonDecoder.ResolveButtonId(0x000C, 0x0001, 0x01, testPayload, []));
+        }
+
+        // Release packet -> null button ID + IsAllZero == true
+        testPayload[0] = 0x00;
+        Assert.Null(ChromecastButtonDecoder.ResolveButtonId(0x000C, 0x0001, 0x01, testPayload, []));
+        Assert.True(ChromecastButtonDecoder.IsAllZero(testPayload));
+
+        // Consumer usage fallback (Power 0x019E -> "01", Input 0x0189 -> "11")
+        Assert.Equal("01", ChromecastButtonDecoder.ResolveButtonId(0x000C, 0x0001, 0x02, [0x9E, 0x01], []));
+        Assert.Equal("11", ChromecastButtonDecoder.ResolveButtonId(0x000C, 0x0001, 0x02, [0x89, 0x01], []));
+
+        // Non-HID ALPC timer message (port 0x0258, 88 bytes) must be ignored
+        var timerEntry = new WudfTapAlpcEntry(0, 0, 0x0258, 88, 128, 1, 1, new byte[88]);
+        Assert.False(WudfAlpcGattParser.TryExtractValueChangedReport(in timerEntry, out _, out _));
+    }
 }
 

@@ -34,15 +34,15 @@ public readonly record struct WudfTapDiagnostics(
     uint AlpcTraceCommittedSeq = 0);
 
 /// <summary>
-/// Builds the position-independent 16KB x64 page and decodes the lock-free ring buffers
+/// Builds the position-independent 24KB x64 page and decodes the lock-free ring buffers
 /// used by WudfHostHidTap to intercept IOCTL 0x80018483, 3-byte HOGP reports, and ALPC
 /// traffic inside WUDFHost.exe on Windows 10/11.
 /// </summary>
 public static class WudfHidTapStubBuilder
 {
-    public const int PageSize = 16384;
+    public const int PageSize = 24576;
     public const uint ReadIoctlCode = 0x80018483;
-    public const ulong MagicSignature = 0x364644574D455256UL; // "VREMWDF6"
+    public const ulong MagicSignature = 0x374644574D455256UL; // "VREMWDF7"
 
     public const int OffCode = 0x000;
     public const int OffReadStub = 0x200;
@@ -78,7 +78,7 @@ public static class WudfHidTapStubBuilder
 
     public const int OffAlpcStub = 0xB00;
     public const int OffAlpcStubLimit = 0xD00; // 512 bytes (0xB00..0xCFF)
-    public const int OffAlpcTraceBuffer = 0x1000; // 16 * 512 = 8192 bytes (0x1000..0x2FFF)
+    public const int OffAlpcTraceBuffer = 0x1000; // 16 * 1024 = 16384 bytes (0x1000..0x4FFF)
 
     public static byte[] BuildHookPage(
         uint syscallId,

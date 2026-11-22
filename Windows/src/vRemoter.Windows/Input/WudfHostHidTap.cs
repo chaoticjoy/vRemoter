@@ -230,7 +230,8 @@ internal sealed class WudfHostHidTap : IDisposable
                         host.IsHidOverGatt,
                         _logTag,
                         in diag,
-                        host.Trace);
+                        host.Trace,
+                        entry => HandleAlpcEntry(host.Pid, diag.Report3Calls, in entry));
                 }
 
                 UpdateConnectedState(anyAlive);
@@ -245,6 +246,24 @@ internal sealed class WudfHostHidTap : IDisposable
                 break;
             }
         }
+    }
+
+    private void HandleAlpcEntry(int pid, ulong ioctlReport3Calls, in WudfTapAlpcEntry entry)
+    {
+        if (ioctlReport3Calls > 0)
+        {
+            return; // Host actively delivers 3-byte IOCTL 0x80018483 reports; avoid double-firing
+        }
+        if (!WudfAlpcGattParser.TryExtractValueChangedReport(in entry, out byte[] payload, out ushort charUuidShort))
+        {
+            return;
+        }
+        if (_rxLogCount < 24)
+        {
+            _rxLogCount++;
+            LogService.Write($"[{_logTag}] WUDF alpc-hid pid={pid} uuid=0x{charUuidShort:X4} len={payload.Length} hex={BitConverter.ToString(payload)}");
+        }
+        ReportReceived?.Invoke(0x01, payload);
     }
 
     private void RefreshAttachedHosts(HashSet<int> failedOpenLogged)
@@ -411,51 +430,11 @@ internal sealed class WudfHostHidTap : IDisposable
         }
     }
 
-    private static uint ReadLocalSyscallId(IntPtr fnAddr)
-    {
-        if (fnAddr == IntPtr.Zero) return 0;
-        byte[] buf = new byte[16];
-        System.Runtime.InteropServices.Marshal.Copy(fnAddr, buf, 0, buf.Length);
-        return WudfHidTapStubBuilder.TryExtractSyscallId(buf, out uint id) ? id : 0;
-    }
+    private static void WriteCaptureAnyFlag(AttachedHost host, bool enabled) =>
+        WriteUInt32Flag(host.ProcessHandle, host.PageAddress, WudfHidTapStubBuilder.OffCaptureAny3Reports, enabled);
 
-    private static bool PatchRemoteJump(IntPtr hProc, IntPtr fnAddr, IntPtr stubAddr)
-    {
-        byte[] jmpPatch = WudfHidTapStubBuilder.BuildRelJmp8(fnAddr.ToInt64(), stubAddr.ToInt64());
-        if (!VirtualProtectEx(hProc, fnAddr, (UIntPtr)8, PageExecuteReadWrite, out uint oldProtect))
-        {
-            return false;
-        }
-        bool patched = WriteProcessMemory(hProc, fnAddr, jmpPatch, jmpPatch.Length, out int patchWritten) &&
-                       patchWritten == jmpPatch.Length;
-        _ = FlushInstructionCache(hProc, fnAddr, (UIntPtr)8);
-        _ = VirtualProtectEx(hProc, fnAddr, (UIntPtr)8, oldProtect, out _);
-        return patched;
-    }
-
-    private static void WriteCaptureAnyFlag(AttachedHost host, bool enabled)
-    {
-        byte[] val = new byte[4];
-        BinaryPrimitives.WriteUInt32LittleEndian(val, enabled ? 1U : 0U);
-        _ = WriteProcessMemory(
-            host.ProcessHandle,
-            IntPtr.Add(host.PageAddress, WudfHidTapStubBuilder.OffCaptureAny3Reports),
-            val,
-            4,
-            out _);
-    }
-
-    private static void WriteSuppressFlag(AttachedHost host, bool enabled)
-    {
-        byte[] val = new byte[4];
-        BinaryPrimitives.WriteUInt32LittleEndian(val, enabled ? 1U : 0U);
-        _ = WriteProcessMemory(
-            host.ProcessHandle,
-            IntPtr.Add(host.PageAddress, WudfHidTapStubBuilder.OffSuppressEnabled),
-            val,
-            4,
-            out _);
-    }
+    private static void WriteSuppressFlag(AttachedHost host, bool enabled) =>
+        WriteUInt32Flag(host.ProcessHandle, host.PageAddress, WudfHidTapStubBuilder.OffSuppressEnabled, enabled);
 
     private void RemoveHost(int pid)
     {

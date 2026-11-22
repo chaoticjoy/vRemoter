@@ -29,6 +29,7 @@ public sealed class ChromecastHidBridge : IDisposable
 
     private bool _remappingEnabled;
     private bool _bleHidsConnected;
+    private bool _loggedRemappingOff;
     private string? _lastButtonId;
 
     public event Action<bool>? ConnectionChanged;
@@ -79,6 +80,7 @@ public sealed class ChromecastHidBridge : IDisposable
     public void SetRemappingEnabled(bool enabled)
     {
         _remappingEnabled = enabled;
+        _loggedRemappingOff = false;
         _wudfTap.SetSuppressEnabled(enabled);
         LogService.Write($"[CAST-HID] remapping={(enabled ? "ON" : "OFF")} {_reader.DescribeStreams()} wudf={_wudfTap.IsConnected} bleHids={_bleHidsConnected}");
     }
@@ -214,52 +216,28 @@ public sealed class ChromecastHidBridge : IDisposable
 
     private static string? ResolveButtonId(HidInputReport report)
     {
-        foreach (var pair in report.ParsedUsages)
-        {
-            if (TryMapHidUsageToButtonId(pair.UsagePage, pair.Usage, out string? mapped))
-            {
-                return mapped;
-            }
-        }
-
-        byte[] payload = report.Payload;
-        if (payload.Length == 0 || IsAllZero(payload)) return null;
-
-        // 1. Direct Chromecast 1-based button index in Report ID 0x01 (matches macOS ChromecastRemoteHIDBridge.swift)
-        if ((report.ReportId == 0x01 || report.ReportId == 0x00) &&
-            (payload.Length == 1 || payload.Skip(1).All(b => b == 0)))
-        {
-            string candidate = payload[0].ToString("X2");
-            if (RemoteProfiles.ChromecastButtons.Any(b => b.Id == candidate))
-            {
-                return candidate;
-            }
-        }
-
-        // 2. Standard 16-bit Consumer Control usage
-        if (report.CollectionUsagePage is 0x0C or 0x00)
-        {
-            ushort consumerUsage = payload.Length >= 2
-                ? (ushort)(payload[0] | (payload[1] << 8))
-                : payload[0];
-            if (TryMapConsumerUsage(consumerUsage, out string? consumerId))
-            {
-                return consumerId;
-            }
-        }
-
-        // 3. System Control Power
-        if (report.CollectionUsagePage == 0x01 && report.CollectionUsage == 0x80 && payload[0] == 0x01)
-        {
-            return "01";
-        }
-
-        return null;
+        ParsedHidUsage[] parsed = report.ParsedUsages.Length > 0
+            ? report.ParsedUsages.Select(u => new ParsedHidUsage(u.UsagePage, u.Usage)).ToArray()
+            : [];
+        return ChromecastButtonDecoder.ResolveButtonId(
+            report.CollectionUsagePage,
+            report.CollectionUsage,
+            report.ReportId,
+            report.Payload,
+            parsed);
     }
 
     private void ApplyButton(string buttonId, bool isDown)
     {
-        if (!_remappingEnabled) return;
+        if (!_remappingEnabled)
+        {
+            if (isDown && !_loggedRemappingOff)
+            {
+                _loggedRemappingOff = true;
+                LogService.Write($"[CAST-HID] button {buttonId} received while remapping=OFF (enable mapping switch in UI)");
+            }
+            return;
+        }
         var button = RemoteProfiles.ChromecastButtons.FirstOrDefault(b => b.Id == buttonId);
         if (button is null || button.VoiceControlled || !button.Remappable) return;
 
@@ -280,69 +258,7 @@ public sealed class ChromecastHidBridge : IDisposable
         LogService.Write($"[CAST-MAP] {button.Title} {(isDown ? "DOWN" : "UP")} -> {_mappings.GetTargetTitle(button, SupportedRemoteId.Chromecast)}");
     }
 
-    private static bool IsAllZero(byte[] data)
-    {
-        foreach (byte b in data)
-        {
-            if (b != 0) return false;
-        }
-        return true;
-    }
-
-    private static bool TryMapHidUsageToButtonId(ushort usagePage, ushort usage, out string? buttonId)
-    {
-        buttonId = usagePage switch
-        {
-            0x0C => TryMapConsumerUsage(usage, out string? cid) ? cid : null,
-            0x07 => TryMapKeyboardUsage(usage, out string? kid) ? kid : null,
-            0x01 when usage is 0x81 or 0x82 => "01",
-            _ => null
-        };
-        return buttonId is not null;
-    }
-
-    private static bool TryMapConsumerUsage(ushort usage, out string? buttonId)
-    {
-        buttonId = usage switch
-        {
-            0x0042 => "03", // Menu Up
-            0x0043 => "04", // Menu Down
-            0x0044 => "05", // Menu Left
-            0x0045 => "06", // Menu Right
-            0x0041 => "07", // Menu Pick / Select
-            0x0040 or 0x0046 or 0x0224 => "0B", // Menu / Escape / AC Back
-            0x0223 or 0x009A => "0A", // AC Home / Media Select Home
-            0x00E2 => "08", // Mute
-            0x00E9 => "0C", // Volume Up
-            0x00EA => "0D", // Volume Down
-            0x0030 or 0x0031 or 0x0032 or 0x019E => "01", // Power / Reset / Sleep (0x019E on Chromecast Remote)
-            0x0077 => "0E", // YouTube
-            0x0078 => "0F", // Netflix
-            0x006A or 0x0082 or 0x00B8 or 0x0189 or 0x019D => "11", // Input / Source (0x0189 on Chromecast Remote)
-            _ => null
-        };
-        return buttonId is not null;
-    }
-
-    private static bool TryMapKeyboardUsage(ushort usage, out string? buttonId)
-    {
-        buttonId = usage switch
-        {
-            0x52 => "03", // Up
-            0x51 => "04", // Down
-            0x50 => "05", // Left
-            0x4F => "06", // Right
-            0x28 or 0x58 => "07", // Enter
-            0x29 or 0x2A or 0xF1 => "0B", // Esc / Backspace / Back
-            0x4A => "0A", // Home
-            0x7F => "08", // Mute
-            0x80 => "0C", // Vol Up
-            0x81 => "0D", // Vol Down
-            0x66 => "01", // Power
-            _ => null
-        };
-        return buttonId is not null;
-    }
+    private static bool IsAllZero(byte[] data) => ChromecastButtonDecoder.IsAllZero(data);
 
     private static bool TryMapVirtualKeyToButtonId(ushort vkey, out string? buttonId)
     {

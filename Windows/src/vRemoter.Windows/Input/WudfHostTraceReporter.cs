@@ -14,16 +14,17 @@ internal static class WudfHostTraceReporter
         bool isHidOverGatt,
         string logTag,
         in WudfTapDiagnostics diag,
-        WudfHostHidTap.HostTraceState state)
+        WudfHostHidTap.HostTraceState state,
+        Action<WudfTapAlpcEntry>? onAlpcEntry = null)
     {
         if (isHidOverGatt && state.IoctlLogCount < 40 && diag.TraceSeq != state.LastTraceSeq)
         {
             DrainIoctlTraces(processHandle, pageAddress, pid, logTag, diag.TraceSeq, state);
         }
 
-        if (isHidOverGatt && state.AlpcLogCount < 120 && diag.AlpcTraceCommittedSeq != state.LastAlpcTraceSeq)
+        if (isHidOverGatt && diag.AlpcTraceCommittedSeq != state.LastAlpcTraceSeq)
         {
-            DrainAlpcTraces(processHandle, pageAddress, pid, logTag, diag.AlpcTraceCommittedSeq, state);
+            DrainAlpcTraces(processHandle, pageAddress, pid, logTag, diag.AlpcTraceCommittedSeq, state, onAlpcEntry);
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -93,7 +94,8 @@ internal static class WudfHostTraceReporter
         int pid,
         string logTag,
         uint committedSeq,
-        WudfHostHidTap.HostTraceState state)
+        WudfHostHidTap.HostTraceState state,
+        Action<WudfTapAlpcEntry>? onAlpcEntry)
     {
         uint delta = committedSeq - state.LastAlpcTraceSeq;
         if (delta > WudfAlpcStubEmitter.SlotCount)
@@ -102,7 +104,7 @@ internal static class WudfHostTraceReporter
         }
 
         byte[] slotBuf = new byte[WudfAlpcStubEmitter.SlotSize];
-        while (state.LastAlpcTraceSeq != committedSeq && state.AlpcLogCount < 120)
+        while (state.LastAlpcTraceSeq != committedSeq)
         {
             uint idx = state.LastAlpcTraceSeq & (WudfAlpcStubEmitter.SlotCount - 1);
             IntPtr ptr = IntPtr.Add(pageAddress, WudfHidTapStubBuilder.OffAlpcTraceBuffer + (int)(idx * WudfAlpcStubEmitter.SlotSize));
@@ -119,6 +121,13 @@ internal static class WudfHostTraceReporter
 
             state.LastAlpcTraceSeq++;
             var entry = WudfAlpcStubEmitter.DecodeAlpcEntry(slotBuf);
+            onAlpcEntry?.Invoke(entry);
+
+            if (state.AlpcLogCount >= 120)
+            {
+                continue;
+            }
+
             string hex = entry.Payload.Length > 0 ? BitConverter.ToString(entry.Payload) : string.Empty;
             // Ignore per-message CallId/MsgId prefix (first 24 bytes) when deduplicating large RPC packets
             // so repeating timer/idle headers collapse cleanly while any argument change always logs.
