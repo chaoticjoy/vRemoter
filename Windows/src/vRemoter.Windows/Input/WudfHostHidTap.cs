@@ -13,16 +13,19 @@ namespace vRemoter.Windows.Input;
 /// </summary>
 public sealed class WudfHostHidTap : IDisposable
 {
-    private sealed class AttachedHost(int pid, IntPtr processHandle, IntPtr pageAddress, uint initialSeq, string sourceNode) : IDisposable
+    private sealed class AttachedHost(int pid, IntPtr processHandle, IntPtr pageAddress, uint initialSeq, uint initialTraceSeq, string sourceNode, bool isHidOverGatt) : IDisposable
     {
         public int Pid { get; } = pid;
         public IntPtr ProcessHandle { get; } = processHandle;
         public IntPtr PageAddress { get; } = pageAddress;
         public string SourceNode { get; } = sourceNode;
+        public bool IsHidOverGatt { get; } = isHidOverGatt;
         public uint LastReadSeq { get; set; } = initialSeq;
+        public uint LastTraceSeq { get; set; } = initialTraceSeq;
         public ulong LastLoggedTotals { get; set; }
         public ulong LastLoggedIoctls { get; set; }
         public DateTimeOffset LastDiagLogAt { get; set; } = DateTimeOffset.MinValue;
+        public int TraceLogCount { get; set; }
 
         public void Dispose()
         {
@@ -126,8 +129,10 @@ public sealed class WudfHostHidTap : IDisposable
         }
 
         var lastScan = DateTimeOffset.MinValue;
-        byte[] headerBuf = new byte[0x40];
+        byte[] headerBuf = new byte[0x50];
         byte[] ringSlotBuf = new byte[4];
+        byte[] traceSlotBuf = new byte[16];
+        var failedOpenLogged = new HashSet<int>();
 
         while (!ct.IsCancellationRequested)
         {
@@ -137,7 +142,7 @@ public sealed class WudfHostHidTap : IDisposable
                 if (now - lastScan >= TimeSpan.FromSeconds(2.0))
                 {
                     lastScan = now;
-                    RefreshAttachedHosts();
+                    RefreshAttachedHosts(failedOpenLogged);
                 }
 
                 List<AttachedHost> snapshot;
@@ -155,7 +160,7 @@ public sealed class WudfHostHidTap : IDisposable
                             headerBuf,
                             headerBuf.Length,
                             out int bytesRead) ||
-                        bytesRead < 0x38)
+                        bytesRead < 0x48)
                     {
                         RemoveHost(host.Pid);
                         continue;
@@ -207,14 +212,35 @@ public sealed class WudfHostHidTap : IDisposable
                         }
                     }
 
-                    if ((diag.IoctlCalls != host.LastLoggedIoctls ||
-                         (diag.TotalCalls != host.LastLoggedTotals && host.LastLoggedTotals == 0)) &&
-                        now - host.LastDiagLogAt >= TimeSpan.FromSeconds(10))
+                    if (host.IsHidOverGatt && host.TraceLogCount < 40 && diag.TraceSeq != host.LastTraceSeq)
+                    {
+                        uint tDelta = diag.TraceSeq - host.LastTraceSeq;
+                        if (tDelta > WudfHidTapStubBuilder.TraceCapacity)
+                        {
+                            host.LastTraceSeq = diag.TraceSeq - WudfHidTapStubBuilder.TraceCapacity;
+                        }
+                        while (host.LastTraceSeq != diag.TraceSeq && host.TraceLogCount < 40)
+                        {
+                            uint tIdx = host.LastTraceSeq & (WudfHidTapStubBuilder.TraceCapacity - 1);
+                            IntPtr tPtr = IntPtr.Add(host.PageAddress, WudfHidTapStubBuilder.OffTraceBuffer + (int)(tIdx * 16));
+                            host.LastTraceSeq++;
+                            if (!ReadProcessMemory(host.ProcessHandle, tPtr, traceSlotBuf, 16, out int tr) || tr != 16)
+                            {
+                                break;
+                            }
+                            var te = WudfHidTapStubBuilder.DecodeTraceEntry(traceSlotBuf);
+                            host.TraceLogCount++;
+                            LogService.Write($"[{_logTag}] WUDF trace pid={host.Pid} ioctl=0x{te.IoControlCode:X8} status=0x{te.NtStatus:X8} outLen={te.OutLen} sample=0x{te.SampleBytes:X8}");
+                        }
+                    }
+
+                    if ((diag.IoctlCalls != host.LastLoggedIoctls || diag.TotalCalls != host.LastLoggedTotals) &&
+                        now - host.LastDiagLogAt >= TimeSpan.FromSeconds(6))
                     {
                         host.LastLoggedTotals = diag.TotalCalls;
                         host.LastLoggedIoctls = diag.IoctlCalls;
                         host.LastDiagLogAt = now;
-                        LogService.Write($"[{_logTag}] WUDF stats pid={host.Pid} total={diag.TotalCalls} ioctl80018483={diag.IoctlCalls} reports3={diag.Report3Calls} lastLen={diag.LastOutLen} lastStatus=0x{diag.LastNtStatus:X8}");
+                        LogService.Write($"[{_logTag}] WUDF stats pid={host.Pid}(hog={host.IsHidOverGatt}) total={diag.TotalCalls} ioctl={diag.IoctlCalls} reports3={diag.Report3Calls} lastIoctl=0x{diag.LastIoctlCode:X8} matchedIoctl=0x{diag.LastMatchedIoctlCode:X8} lastLen={diag.LastOutLen} lastStatus=0x{diag.LastNtStatus:X8}");
                     }
                 }
 
@@ -232,7 +258,7 @@ public sealed class WudfHostHidTap : IDisposable
         }
     }
 
-    private void RefreshAttachedHosts()
+    private void RefreshAttachedHosts(HashSet<int> failedOpenLogged)
     {
         if (!WindowsVersionInfo.IsElevated)
         {
@@ -245,17 +271,17 @@ public sealed class WudfHostHidTap : IDisposable
         }
 
         var candidates = DiscoverCandidateWudfHosts(_vendorId, _productId);
-        foreach (var (pid, sourceNode) in candidates)
+        foreach (var (pid, sourceNode, isHidOverGatt) in candidates)
         {
             lock (_sync)
             {
                 if (_hosts.ContainsKey(pid)) continue;
             }
-            TryAttachToHost(pid, sourceNode);
+            TryAttachToHost(pid, sourceNode, isHidOverGatt, failedOpenLogged);
         }
     }
 
-    private void TryAttachToHost(int pid, string sourceNode)
+    private void TryAttachToHost(int pid, string sourceNode, bool isHidOverGatt, HashSet<int> failedOpenLogged)
     {
         IntPtr hModNtdll = GetModuleHandleW("ntdll.dll");
         IntPtr ntAddr = hModNtdll != IntPtr.Zero ? GetProcAddress(hModNtdll, "NtDeviceIoControlFile") : IntPtr.Zero;
@@ -268,7 +294,15 @@ public sealed class WudfHostHidTap : IDisposable
         _ = WudfHidTapStubBuilder.TryExtractSyscallId(localPrologue, out uint localSyscallId);
 
         IntPtr hProc = OpenProcess(ProcessAccessFlags, bInheritHandle: false, pid);
-        if (hProc == IntPtr.Zero) return;
+        if (hProc == IntPtr.Zero)
+        {
+            int err = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+            if (failedOpenLogged.Add(pid))
+            {
+                LogService.Write($"[{_logTag}] WUDF OpenProcess failed pid={pid} err={err} src={sourceNode}");
+            }
+            return;
+        }
 
         try
         {
@@ -281,22 +315,23 @@ public sealed class WudfHostHidTap : IDisposable
 
             uint syscallId = localSyscallId;
 
-            // Case A: Already hooked -> reuse only if it matches current v2 MagicSignature; otherwise upgrade atomically.
+            // Case A: Already hooked -> reuse only if it matches current v3 MagicSignature; otherwise upgrade atomically.
             if (prologue[0] == 0xE9)
             {
                 int rel32 = BinaryPrimitives.ReadInt32LittleEndian(prologue.AsSpan(1, 4));
                 IntPtr existingPage = new(ntAddr.ToInt64() + 5 + rel32);
-                byte[] hdr = new byte[0x40];
+                byte[] hdr = new byte[0x50];
                 if (ReadProcessMemory(hProc, IntPtr.Add(existingPage, WudfHidTapStubBuilder.OffMagic), hdr, hdr.Length, out int hr) &&
-                    hr >= 0x38)
+                    hr >= 0x48)
                 {
                     var diag = WudfHidTapStubBuilder.ReadDiagnostics(hdr);
                     if (diag.Magic == WudfHidTapStubBuilder.MagicSignature)
                     {
-                        var reused = new AttachedHost(pid, hProc, existingPage, diag.CommittedSeq, sourceNode);
+                        var reused = new AttachedHost(pid, hProc, existingPage, diag.CommittedSeq, diag.TraceSeq, sourceNode, isHidOverGatt);
                         WriteSuppressFlag(reused, _suppressEnabled);
+                        WriteCaptureAnyFlag(reused, isHidOverGatt);
                         lock (_sync) { _hosts[pid] = reused; }
-                        LogService.Write($"[{_logTag}] WUDF attached (reused) pid={pid} page=0x{existingPage.ToInt64():X} src={sourceNode}");
+                        LogService.Write($"[{_logTag}] WUDF attached (reused) pid={pid} hog={isHidOverGatt} page=0x{existingPage.ToInt64():X} src={sourceNode}");
                         return;
                     }
 
@@ -324,7 +359,7 @@ public sealed class WudfHostHidTap : IDisposable
                 return;
             }
 
-            byte[] pageBytes = WudfHidTapStubBuilder.BuildHookPage(syscallId, _suppressEnabled, prologue);
+            byte[] pageBytes = WudfHidTapStubBuilder.BuildHookPage(syscallId, _suppressEnabled, prologue, isHidOverGatt);
             if (!WriteProcessMemory(hProc, pageAddr, pageBytes, pageBytes.Length, out int written) || written != pageBytes.Length)
             {
                 _ = CloseHandle(hProc);
@@ -351,15 +386,27 @@ public sealed class WudfHostHidTap : IDisposable
                 return;
             }
 
-            var host = new AttachedHost(pid, hProc, pageAddr, 0, sourceNode);
+            var host = new AttachedHost(pid, hProc, pageAddr, 0, 0, sourceNode, isHidOverGatt);
             lock (_sync) { _hosts[pid] = host; }
-            LogService.Write($"[{_logTag}] WUDF attached{(prologue[0] == 0xE9 ? " (upgraded)" : string.Empty)} pid={pid} syscall=0x{syscallId:X} page=0x{pageAddr.ToInt64():X} src={sourceNode}");
+            LogService.Write($"[{_logTag}] WUDF attached{(prologue[0] == 0xE9 ? " (upgraded)" : string.Empty)} pid={pid} hog={isHidOverGatt} syscall=0x{syscallId:X} page=0x{pageAddr.ToInt64():X} src={sourceNode}");
         }
         catch (Exception ex)
         {
             _ = CloseHandle(hProc);
             LogService.Write($"[{_logTag}] WUDF attach error pid={pid}: {ex.Message}");
         }
+    }
+
+    private static void WriteCaptureAnyFlag(AttachedHost host, bool enabled)
+    {
+        byte[] val = new byte[4];
+        BinaryPrimitives.WriteUInt32LittleEndian(val, enabled ? 1U : 0U);
+        _ = WriteProcessMemory(
+            host.ProcessHandle,
+            IntPtr.Add(host.PageAddress, WudfHidTapStubBuilder.OffCaptureAny3Reports),
+            val,
+            4,
+            out _);
     }
 
     private static void WriteSuppressFlag(AttachedHost host, bool enabled)

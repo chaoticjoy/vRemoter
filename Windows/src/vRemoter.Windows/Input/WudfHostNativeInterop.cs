@@ -25,9 +25,9 @@ internal static class WudfHostNativeInterop
     private const uint TokenQuery = 0x0008;
     private const uint SePrivilegeEnabled = 0x00000002;
 
-    internal static List<(int Pid, string SourceNode)> DiscoverCandidateWudfHosts(ushort vendorId, ushort productId)
+    internal static List<(int Pid, string SourceNode, bool IsHidOverGatt)> DiscoverCandidateWudfHosts(ushort vendorId, ushort productId)
     {
-        var list = new List<(int Pid, string SourceNode)>();
+        var list = new List<(int Pid, string SourceNode, bool IsHidOverGatt)>();
         var seenPids = new HashSet<int>();
         string vidHex = vendorId.ToString("x4");
         string pidHex = productId.ToString("x4");
@@ -44,17 +44,28 @@ internal static class WudfHostNativeInterop
                     bool matchesTarget = svcName.Contains(vidHex, StringComparison.OrdinalIgnoreCase) &&
                                          svcName.Contains(pidHex, StringComparison.OrdinalIgnoreCase);
 
-                    using var svcKey = root.OpenSubKey(svcName);
-                    if (svcKey is null) continue;
-                    foreach (string instName in svcKey.GetSubKeyNames())
+                    try
                     {
-                        using var diagKey = svcKey.OpenSubKey($@"{instName}\{WudfDiagSubKey}");
-                        if (diagKey?.GetValue("HostPid") is int hostPid && hostPid > 0 && seenPids.Add(hostPid))
+                        using var svcKey = root.OpenSubKey(svcName);
+                        if (svcKey is null) continue;
+                        foreach (string instName in svcKey.GetSubKeyNames())
                         {
-                            if (matchesTarget) list.Insert(0, (hostPid, svcName));
-                            else list.Add((hostPid, svcName));
+                            try
+                            {
+                                using var diagKey = svcKey.OpenSubKey($@"{instName}\{WudfDiagSubKey}");
+                                object? raw = diagKey?.GetValue("HostPid");
+                                int hostPid = raw is int iv ? iv : (raw is uint uv ? (int)uv : 0);
+                                if (hostPid > 0 && seenPids.Add(hostPid))
+                                {
+                                    bool isHog = matchesTarget || HasHidOverGattModule(hostPid, out _);
+                                    if (matchesTarget) list.Insert(0, (hostPid, svcName, true));
+                                    else list.Add((hostPid, svcName, isHog));
+                                }
+                            }
+                            catch { }
                         }
                     }
+                    catch { }
                 }
             }
         }
@@ -62,7 +73,8 @@ internal static class WudfHostNativeInterop
         {
         }
 
-        // 2. Fallback: also include any running WUDFHost.exe processes so PID changes are never missed
+        // 2. Fallback: include all running WUDFHost.exe processes and inspect loaded modules
+        //    so we pinpoint the exact process hosting Microsoft.Bluetooth.Profiles.HidOverGatt.dll.
         try
         {
             foreach (var proc in Process.GetProcessesByName("WUDFHost"))
@@ -71,7 +83,10 @@ internal static class WudfHostNativeInterop
                 {
                     if (proc.Id > 0 && seenPids.Add(proc.Id))
                     {
-                        list.Add((proc.Id, "WUDFHost.exe"));
+                        bool isHog = HasHidOverGattModule(proc.Id, out string modTag);
+                        string label = string.IsNullOrEmpty(modTag) ? "WUDFHost.exe" : modTag;
+                        if (isHog) list.Insert(0, (proc.Id, label, true));
+                        else list.Add((proc.Id, label, false));
                     }
                 }
             }
@@ -81,6 +96,46 @@ internal static class WudfHostNativeInterop
         }
 
         return list;
+    }
+
+    internal static bool HasHidOverGattModule(int pid, out string moduleSummary)
+    {
+        moduleSummary = string.Empty;
+        IntPtr snap = CreateToolhelp32Snapshot(0x00000008 /* TH32CS_SNAPMODULE */ | 0x00000010 /* TH32CS_SNAPMODULE32 */, (uint)pid);
+        if (snap == IntPtr.Zero || snap == new IntPtr(-1))
+        {
+            return false;
+        }
+        try
+        {
+            var me = new MODULEENTRY32W { DwSize = (uint)Marshal.SizeOf<MODULEENTRY32W>() };
+            if (!Module32FirstW(snap, ref me)) return false;
+            var interesting = new List<string>();
+            do
+            {
+                string name = me.SzModule ?? string.Empty;
+                if (name.Contains("HidOverGatt", StringComparison.OrdinalIgnoreCase))
+                {
+                    interesting.Insert(0, name);
+                }
+                else if (name.Contains("Bth", StringComparison.OrdinalIgnoreCase) ||
+                         name.Contains("Hid", StringComparison.OrdinalIgnoreCase))
+                {
+                    interesting.Add(name);
+                }
+            }
+            while (Module32NextW(snap, ref me));
+
+            if (interesting.Count > 0)
+            {
+                moduleSummary = string.Join(",", interesting.Distinct().Take(3));
+            }
+            return interesting.Any(n => n.Contains("HidOverGatt", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            _ = CloseHandle(snap);
+        }
     }
 
     internal static IntPtr AllocateNearAddress(IntPtr hProcess, long targetAddr)
@@ -156,6 +211,32 @@ internal static class WudfHostNativeInterop
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct TOKEN_PRIVILEGES { public uint PrivilegeCount; public LUID Luid; public uint Attributes; }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct MODULEENTRY32W
+    {
+        public uint DwSize;
+        public uint Th32ModuleID;
+        public uint Th32ProcessID;
+        public uint GlblcntUsage;
+        public uint ProccntUsage;
+        public IntPtr ModBaseAddr;
+        public uint ModBaseSize;
+        public IntPtr HModule;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+        public string SzModule;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+        public string SzExePath;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    internal static extern bool Module32FirstW(IntPtr hSnapshot, ref MODULEENTRY32W lpme);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    internal static extern bool Module32NextW(IntPtr hSnapshot, ref MODULEENTRY32W lpme);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     internal static extern IntPtr GetModuleHandleW(string lpModuleName);
