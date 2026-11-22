@@ -5,8 +5,8 @@ namespace vRemoter.Windows;
 
 public partial class App : Application
 {
-    private const string SingleInstanceMutexName = @"Local\vRemoter.Community.SingleInstance";
-    private const string ShowConsoleEventName = @"Local\vRemoter.Community.ShowConsole";
+    private const string SingleInstanceMutexName = @"Local\vRemoter.XiaozuOptimized.SingleInstance";
+    private const string ShowConsoleEventName = @"Local\vRemoter.XiaozuOptimized.ShowConsole";
 
     private Mutex? _instanceMutex;
     private EventWaitHandle? _showEvent;

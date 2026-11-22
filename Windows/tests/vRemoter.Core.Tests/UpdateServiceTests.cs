@@ -34,13 +34,13 @@ public sealed class UpdateServiceTests
                 "assets": [
                   {
                     "id": 1,
-                    "name": "vRemoter-Community-1.5.0-AppleSilicon.pkg",
+                    "name": "vRemoter-Xiaozu-1.5.0-AppleSilicon.pkg",
                     "browser_download_url": "https://example.invalid/app.pkg",
                     "digest": null
                   },
                   {
                     "id": 2,
-                    "name": "vRemoter-Community-1.5.0-Windows-x64-Setup.exe",
+                    "name": "vRemoter-Xiaozu-1.5.0-Windows-x64-Setup.exe",
                     "browser_download_url": "https://example.invalid/setup.exe",
                     "digest": "sha256:0000"
                   }
@@ -52,7 +52,7 @@ public sealed class UpdateServiceTests
             var service = new GitHubUpdateService(new Uri(tempFile).AbsoluteUri, "1.4.0");
             var result = await service.CheckForUpdateAsync();
             var available = Assert.IsType<UpdateCheckResult.Available>(result);
-            Assert.Equal("vRemoter-Community-1.5.0-Windows-x64-Setup.exe", available.Release.WindowsInstallerAsset?.Name);
+            Assert.Equal("vRemoter-Xiaozu-1.5.0-Windows-x64-Setup.exe", available.Release.WindowsInstallerAsset?.Name);
         }
         finally
         {
@@ -77,7 +77,7 @@ public sealed class UpdateServiceTests
 
             var release = new GitHubRelease(
                 1, "v1.5.0", "vRemoter 1.5.0", null, "https://example.invalid", false, false, false,
-                [new GitHubReleaseAsset(10, "vRemoter-Community-1.5.0-Windows-x64-Setup.exe", "https://example.invalid/setup.exe", goodDigest)]);
+                [new GitHubReleaseAsset(10, "vRemoter-Xiaozu-1.5.0-Windows-x64-Setup.exe", "https://example.invalid/setup.exe", goodDigest)]);
 
             string? downloaded = await service.DownloadInstallerAsync(release, Path.Combine(tempDir, "dl"));
             Assert.NotNull(downloaded);

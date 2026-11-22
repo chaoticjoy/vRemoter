@@ -2,7 +2,7 @@
 
 ## v1.4.0 · 2026-11-22
 
-> 从本版本起，vRemoter 社区版正式成为 **macOS + Windows 双平台项目**：保留完整 macOS（Apple Silicon，macOS 12+）支持的同时，新增对 **Windows 10（1809 / Build 17763+）与 Windows 11（x64）** 的原生桌面端适配。
+> 从本版本起，vRemoter 小卒优化版正式成为 **macOS + Windows 双平台项目**：保留完整 macOS（Apple Silicon，macOS 12+）支持的同时，新增对 **Windows 10（1809 / Build 17763+）与 Windows 11（x64）** 的原生桌面端适配。
 
 ### 新功能
 

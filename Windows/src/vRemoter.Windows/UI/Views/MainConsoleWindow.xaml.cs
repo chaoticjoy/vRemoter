@@ -31,7 +31,7 @@ public partial class MainConsoleWindow : Window
 
         Title = L10n.Text("vRemoter 控制台", "vRemoter Console");
         string ver = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.4.0";
-        VersionLabel.Text = ver + L10n.Text(" · 社区版", " · Community");
+        VersionLabel.Text = ver + L10n.Text(" · 小卒优化版", " · Xiaozu Optimized");
         StopMicButton.Content = L10n.Text("结束录音", "Stop");
 
         _mixerPage = new StudioMixerPage(vm);

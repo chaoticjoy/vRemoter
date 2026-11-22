@@ -64,7 +64,7 @@ jobs:
             gh release create "$TAG" \
               --repo "${{ github.repository }}" \
               --target "${{ github.sha }}" \
-              --title "vRemoter ${VERSION}" \
+              --title "vRemoter 小卒优化版 ${VERSION}" \
               --generate-notes
           fi
 
@@ -108,8 +108,8 @@ jobs:
           Scripts/build-pkg.sh
           Scripts/build-dmg.sh
 
-          PKG_OUT="dist/vRemoter-Community-${VERSION}-AppleSilicon.pkg"
-          DMG_OUT="dist/vRemoter-Community-${VERSION}-AppleSilicon.dmg"
+          PKG_OUT="dist/vRemoter-Xiaozu-${VERSION}-AppleSilicon.pkg"
+          DMG_OUT="dist/vRemoter-Xiaozu-${VERSION}-AppleSilicon.dmg"
           cp "dist/vRemoter-${VERSION}.pkg" "$PKG_OUT"
           cp "dist/vRemoter-${VERSION}.dmg" "$DMG_OUT"
 
@@ -149,11 +149,11 @@ jobs:
             -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:Version=$ver -o Windows/dist/publish
 
-          $zipOut = "Windows/dist/vRemoter-Community-$ver-Windows-x64-Portable.zip"
+          $zipOut = "Windows/dist/vRemoter-Xiaozu-$ver-Windows-x64-Portable.zip"
           Compress-Archive -Path "Windows/dist/publish/*" -DestinationPath $zipOut -Force
 
           iscc "/DMyAppVersion=$ver" Windows/Installer/vRemoter.iss
-          $exeOut = "Windows/dist/vRemoter-Community-$ver-Windows-x64-Setup.exe"
+          $exeOut = "Windows/dist/vRemoter-Xiaozu-$ver-Windows-x64-Setup.exe"
 
           $exeSha = (Get-FileHash $exeOut -Algorithm SHA256).Hash.ToLowerInvariant()
           $zipSha = (Get-FileHash $zipOut -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -201,12 +201,12 @@ jobs:
           mac_section = (
               "### macOS (Apple Silicon)\n"
               "- 支持 Apple 芯片（M 系列）Mac，macOS 12 或更高版本。\n"
-              f"- 首次安装请下载 `vRemoter-Community-{ver}-AppleSilicon.pkg`（包含 App 与 `vRemoteDriver.driver` 音频驱动）；仅升级 App 可下载 `.dmg`。\n"
+              f"- 首次安装请下载 `vRemoter-Xiaozu-{ver}-AppleSilicon.pkg`（包含 App 与 `vRemoteDriver.driver` 音频驱动）；仅升级 App 可下载 `.dmg`。\n"
               "- 安装包未签名，如被系统拦截请到 **系统设置 → 隐私与安全性 → 仍要打开**。"
           )
           win_section = (
               "### Windows 10 / 11 (x64)\n"
-              f"- 支持 Windows 10 (1809+) 与 Windows 11，推荐下载 `vRemoter-Community-{ver}-Windows-x64-Setup.exe`（便携免安装版为 `.zip`）。\n"
+              f"- 支持 Windows 10 (1809+) 与 Windows 11，推荐下载 `vRemoter-Xiaozu-{ver}-Windows-x64-Setup.exe`（便携免安装版为 `.zip`）。\n"
               "- 首次使用需在主界面引导中一键安装 WHQL 签名虚拟声卡 **VB-Cable**。"
           )
 
@@ -216,10 +216,10 @@ jobs:
                   f"{mac_section}\n\n"
                   f"{win_section}\n\n"
                   "### SHA-256\n"
-                  f"- `vRemoter-Community-{ver}-AppleSilicon.pkg`: `{pkg_sha}`\n"
-                  f"- `vRemoter-Community-{ver}-AppleSilicon.dmg`: `{dmg_sha}`\n"
-                  f"- `vRemoter-Community-{ver}-Windows-x64-Setup.exe`: `{exe_sha}`\n"
-                  f"- `vRemoter-Community-{ver}-Windows-x64-Portable.zip`: `{zip_sha}`"
+                  f"- `vRemoter-Xiaozu-{ver}-AppleSilicon.pkg`: `{pkg_sha}`\n"
+                  f"- `vRemoter-Xiaozu-{ver}-AppleSilicon.dmg`: `{dmg_sha}`\n"
+                  f"- `vRemoter-Xiaozu-{ver}-Windows-x64-Setup.exe`: `{exe_sha}`\n"
+                  f"- `vRemoter-Xiaozu-{ver}-Windows-x64-Portable.zip`: `{zip_sha}`"
               )
               print(header + ("\n\n" + existing if existing else ""))
           elif existing:
@@ -239,8 +239,8 @@ jobs:
                       else:
                           body = body + "\n\n" + win_section
                   for fname, sha in [
-                      (f"vRemoter-Community-{ver}-Windows-x64-Setup.exe", exe_sha),
-                      (f"vRemoter-Community-{ver}-Windows-x64-Portable.zip", zip_sha),
+                      (f"vRemoter-Xiaozu-{ver}-Windows-x64-Setup.exe", exe_sha),
+                      (f"vRemoter-Xiaozu-{ver}-Windows-x64-Portable.zip", zip_sha),
                   ]:
                       pattern = rf"^- `{re.escape(fname)}`: `[^`]*`$"
                       line = f"- `{fname}`: `{sha}`"
@@ -250,8 +250,8 @@ jobs:
                           body = body.rstrip() + "\n" + line
               if mac_built:
                   for fname, sha in [
-                      (f"vRemoter-Community-{ver}-AppleSilicon.pkg", pkg_sha),
-                      (f"vRemoter-Community-{ver}-AppleSilicon.dmg", dmg_sha),
+                      (f"vRemoter-Xiaozu-{ver}-AppleSilicon.pkg", pkg_sha),
+                      (f"vRemoter-Xiaozu-{ver}-AppleSilicon.dmg", dmg_sha),
                   ]:
                       pattern = rf"^- `{re.escape(fname)}`: `[^`]*`$"
                       line = f"- `{fname}`: `{sha}`"
@@ -268,14 +268,14 @@ jobs:
                   print(win_section + "\n")
               print("### SHA-256")
               if mac_built:
-                  print(f"- `vRemoter-Community-{ver}-AppleSilicon.pkg`: `{pkg_sha}`")
-                  print(f"- `vRemoter-Community-{ver}-AppleSilicon.dmg`: `{dmg_sha}`")
+                  print(f"- `vRemoter-Xiaozu-{ver}-AppleSilicon.pkg`: `{pkg_sha}`")
+                  print(f"- `vRemoter-Xiaozu-{ver}-AppleSilicon.dmg`: `{dmg_sha}`")
               if win_built:
-                  print(f"- `vRemoter-Community-{ver}-Windows-x64-Setup.exe`: `{exe_sha}`")
-                  print(f"- `vRemoter-Community-{ver}-Windows-x64-Portable.zip`: `{zip_sha}`")
+                  print(f"- `vRemoter-Xiaozu-{ver}-Windows-x64-Setup.exe`: `{exe_sha}`")
+                  print(f"- `vRemoter-Xiaozu-{ver}-Windows-x64-Portable.zip`: `{zip_sha}`")
           PY
 
           gh release edit "$TAG" \
             --repo "${{ github.repository }}" \
-            --title "vRemoter ${VERSION}" \
+            --title "vRemoter 小卒优化版 ${VERSION}" \
             --notes-file /tmp/release-notes.md

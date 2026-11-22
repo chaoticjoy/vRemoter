@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-vRemoter 社区版 (Community Edition): a macOS menu-bar app (Swift Package, no Xcode project, macOS 12+, Apple Silicon releases). A Bluetooth voice remote's voice key drives the voice input of Doubao (豆包输入法) or WeType (微信输入法). The remote's microphone is mixed with the MacBook mic into a virtual CoreAudio device, `vRemoteDr 2ch`. The remote's other buttons can be remapped.
+vRemoter 小卒优化版 (Xiaozu Optimized): a macOS menu-bar app (Swift Package, no Xcode project, macOS 12+, Apple Silicon releases). A Bluetooth voice remote's voice key drives the voice input of Doubao (豆包输入法) or WeType (微信输入法). The remote's microphone is mixed with the MacBook mic into a virtual CoreAudio device, `vRemoteDr 2ch`. The remote's other buttons can be remapped.
 
 - **Origin:** forked from VincentKingHsu/vRemoter (MIT) at v1.2.3. Since v1.3.0 it is maintained independently at github.com/ccc333cn/vRemoter.
 - **Do not sync or PR upstream.** Keep the original author's copyright line in LICENSE.
@@ -98,7 +98,7 @@ VREMOTER_DRIVER=/path/to/vRemoteDriver.driver Scripts/build-pkg.sh   # -> dist/v
 2. Build the pkg (see above). Commit with the `ccc333cn` noreply identity, then push to `main`.
 3. Create a GitHub release with tag `vX.Y.Z`:
    - Not marked prerelease.
-   - Attach an ASCII-named asset such as `vRemoter-Community-X.Y.Z-AppleSilicon.pkg`.
+   - Attach an ASCII-named asset such as `vRemoter-Xiaozu-X.Y.Z-AppleSilicon.pkg`.
    - Chinese notes, including the pkg's SHA-256.
    - The pkg is unsigned. Install notes must mention 系统设置 → 隐私与安全性 → 仍要打开.
 

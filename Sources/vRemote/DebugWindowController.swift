@@ -578,7 +578,7 @@ private struct StudioMixerView: View {
         }
     }
 
-    /// 主界面副标题：当前版本号 + 渠道后缀 + 社区版标记（如「1.3.0 · 社区版」）。
+    /// 主界面副标题：当前版本号 + 渠道后缀 + 小卒优化版标记（如「1.4.0 · 小卒优化版」）。
     /// Beta 后缀来自 Info.plist 的 VRemoterBetaSuffix；发布正式版时置空即可。
     private var versionLabel: String {
         let version = Bundle.main.object(
@@ -587,7 +587,7 @@ private struct StudioMixerView: View {
         let suffix = Bundle.main.object(
             forInfoDictionaryKey: "VRemoterBetaSuffix"
         ) as? String ?? ""
-        return version + suffix + L10n.text(" · 社区版", " · Community")
+        return version + suffix + L10n.text(" · 小卒优化版", " · Xiaozu Optimized")
     }
 
     private var header: some View {

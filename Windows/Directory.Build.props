@@ -10,9 +10,9 @@
     <Version Condition="'$(Version)' == ''">1.4.0</Version>
     <AssemblyVersion>$([System.Text.RegularExpressions.Regex]::Replace('$(Version)', '-.*', '')).0</AssemblyVersion>
     <FileVersion>$(AssemblyVersion)</FileVersion>
-    <Product>vRemoter Community</Product>
+    <Product>vRemoter 小卒优化版</Product>
     <Company>ccc333cn</Company>
-    <Copyright>Copyright (c) 2026 vRemoter Community Contributors (MIT)</Copyright>
+    <Copyright>Copyright (c) 2026 vRemoter Xiaozu Optimized Contributors (MIT)</Copyright>
   </PropertyGroup>
 </Project>
 

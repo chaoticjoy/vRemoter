@@ -41,7 +41,7 @@
                                FontWeight="SemiBold"
                                Foreground="{StaticResource BrushText}" />
                     <TextBlock x:Name="VersionLabel"
-                               Text="1.4.0 · 社区版"
+                               Text="1.4.0 · 小卒优化版"
                                FontSize="11"
                                Foreground="{StaticResource BrushSecondary}" />
                 </StackPanel>
