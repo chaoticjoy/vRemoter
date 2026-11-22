@@ -98,7 +98,7 @@ public sealed class AppController : IDisposable
         _x6Hid = new X6HidBridge(_mappingStore, _rawInput, _keyboardGuard, DispatchMappedAction);
         _chromecastHid = new ChromecastHidBridge(_mappingStore, _rawInput, _keyboardGuard, DispatchMappedAction);
         _x6Ble = new WinRtBleBridge("X6-Remote", "x6-ble.txt", "x6-voice", "X6-BLE", resetSessionOnConnect: true);
-        _chromecastBle = new WinRtBleBridge("Chromecast Remote", "chromecast-ble.txt", "chromecast-voice", "CAST-BLE", resetSessionOnConnect: true);
+        _chromecastBle = new WinRtBleBridge("Chromecast Remote", "chromecast-ble.txt", "chromecast-voice", "CAST-BLE", resetSessionOnConnect: true, enableHidsFallback: true);
 
         _tray = new TrayMenuController();
         _consoleWindow = new MainConsoleWindow(_vm, _mappingStore, _focusStore, _focusCoordinator);
@@ -207,6 +207,7 @@ public sealed class AppController : IDisposable
         _x6Hid.LongPressEnded += _session.RemoteHidLongPressEnded;
 
         _chromecastHid.ConnectionChanged += connected => { _chromecastHidConnected = connected; UpdateStatus(); };
+        _chromecastBle.HidsReportReceived += _chromecastHid.OnBleHidsReport;
 
         WireBleEvents(_x6Ble, VoiceRemoteId.X6, false);
         WireBleEvents(_chromecastBle, VoiceRemoteId.Chromecast, true);

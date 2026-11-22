@@ -22,6 +22,7 @@ public sealed class ChromecastHidBridge : IDisposable
     private readonly HashSet<string> _loggedUnmapped = [];
 
     private bool _remappingEnabled;
+    private volatile bool _osHidObserved;
     private string? _lastButtonId;
 
     public event Action<bool>? ConnectionChanged;
@@ -40,7 +41,7 @@ public sealed class ChromecastHidBridge : IDisposable
 
         _reader = new HidCollectionReader(VendorId, ProductId, "CAST-HID");
         _reader.ConnectionChanged += connected => ConnectionChanged?.Invoke(connected);
-        _reader.InputReportReceived += OnHidReport;
+        _reader.InputReportReceived += r => { _osHidObserved = true; OnHidReport(r); };
         rawInput.HidReportReceived += OnRawHidReport;
         rawInput.KeyboardReportReceived += OnRawKeyboard;
         rawInput.DeviceTopologyChanged += _reader.RefreshDevices;
@@ -60,7 +61,14 @@ public sealed class ChromecastHidBridge : IDisposable
     public void SetRemappingEnabled(bool enabled)
     {
         _remappingEnabled = enabled;
-        LogService.Write($"[CAST-HID] remapping={(enabled ? "ON" : "OFF")}");
+        LogService.Write($"[CAST-HID] remapping={(enabled ? "ON" : "OFF")} {_reader.DescribeStreams()}");
+    }
+
+    public void OnBleHidsReport(byte reportId, byte[] payload)
+    {
+        if (_osHidObserved) return;
+        byte[] raw = [reportId, .. payload];
+        OnHidReport(new HidInputReport(0x000C, 0x0001, reportId, payload, raw, []));
     }
 
     private void OnRawHidReport(ushort vid, ushort pid, ushort usagePage, ushort usage, byte[] raw)
@@ -69,12 +77,14 @@ public sealed class ChromecastHidBridge : IDisposable
         if (usagePage != 0 && usage != 0 && _reader.HasOpenStream(usagePage, usage)) return;
         if (usagePage == 0 && _reader.HasAnyOpenStream) return;
 
+        _osHidObserved = true;
         OnHidReport(new HidInputReport(usagePage, usage, raw[0], raw[1..], raw, []));
     }
 
     private void OnRawKeyboard(ushort vid, ushort pid, ushort vkey, bool isDown, ushort makeCode)
     {
         if (vid != VendorId || pid != ProductId) return;
+        _osHidObserved = true;
 
         if (!TryMapVirtualKeyToButtonId(vkey, out string? buttonId) || buttonId is null)
         {

@@ -15,6 +15,7 @@ public sealed partial class WinRtBleBridge : IDisposable
     private readonly string _logTag;
     private readonly string _recordingPrefix;
     private readonly bool _resetSessionOnConnect;
+    private readonly bool _enableHidsFallback;
     private readonly BleDeviceWatcher _watcher;
     private readonly AtvvProtocol _protocol = new();
     private readonly SemaphoreSlim _gattLock = new(1, 1);
@@ -60,11 +61,18 @@ public sealed partial class WinRtBleBridge : IDisposable
     public event Action<double, int>? LevelUpdated;
     public event Action<short[], int>? PcmDecoded;
 
-    public WinRtBleBridge(string nameHint, string savedAddressFilename, string recordingPrefix, string logTag, bool resetSessionOnConnect)
+    public WinRtBleBridge(
+        string nameHint,
+        string savedAddressFilename,
+        string recordingPrefix,
+        string logTag,
+        bool resetSessionOnConnect,
+        bool enableHidsFallback = false)
     {
         _recordingPrefix = recordingPrefix;
         _logTag = logTag;
         _resetSessionOnConnect = resetSessionOnConnect;
+        _enableHidsFallback = enableHidsFallback;
         _watcher = new BleDeviceWatcher(nameHint, savedAddressFilename, logTag);
         _watcher.ConnectedCandidateFound += OnCandidateFound;
         _watcher.DeviceDisconnected += OnWatcherDisconnected;
@@ -277,6 +285,10 @@ public sealed partial class WinRtBleBridge : IDisposable
             LogService.Write($"[{_logTag}] connected & ATVV subscribed ({candidate.Name})");
             await WriteCommandCoreAsync(_commandChar, AtvvProtocol.GetCapabilitiesCommand);
             LogService.Write($"[{_logTag}] TX getCapabilities");
+            if (_enableHidsFallback)
+            {
+                await TryAttachHidsReportMonitorAsync(bleDevice);
+            }
         }
         catch (Exception ex)
         {
@@ -328,6 +340,7 @@ public sealed partial class WinRtBleBridge : IDisposable
 
         try { _atvvService?.Dispose(); } catch { }
         _atvvService = null;
+        CleanupHidsLocked();
         try { _session?.Dispose(); } catch { }
         _session = null;
         if (_device is not null)

@@ -87,6 +87,16 @@ public sealed class HidCollectionReader : IDisposable
         }
     }
 
+    public string DescribeStreams()
+    {
+        lock (_sync)
+        {
+            if (_openStreams.Count == 0) return "openStreams=0";
+            var items = _openStreams.Values.Select(s => $"UP=0x{s.UsagePage:X4}/U=0x{s.Usage:X4}(len={s.InputReportLength})");
+            return $"openStreams={_openStreams.Count} [{string.Join(", ", items)}]";
+        }
+    }
+
     public void Start()
     {
         lock (_sync)
