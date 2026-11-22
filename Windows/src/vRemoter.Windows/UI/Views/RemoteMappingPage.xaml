@@ -34,7 +34,7 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <ComboBox x:Name="ModeCombo" Grid.Column="0" Style="{StaticResource ConsoleComboBoxStyle}" SelectionChanged="OnModeSelectionChanged" />
-                        <ComboBox x:Name="TriggerCombo" Grid.Column="2" Style="{StaticResource ConsoleComboBoxStyle}" SelectionChanged="OnTriggerSelectionChanged" />
+                        <ComboBox x:Name="TriggerCombo" Grid.Column="2" Style="{StaticResource ConsoleComboBoxStyle}" SelectionChanged="OnTriggerSelectionChanged" PreviewMouseLeftButtonUp="OnTriggerComboPreviewMouseLeftButtonUp" />
                     </Grid>
                 </StackPanel>
             </Grid>

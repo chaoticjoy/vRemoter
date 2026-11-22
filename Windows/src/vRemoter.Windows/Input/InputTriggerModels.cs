@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using vRemoter.Core.Localization;
 using vRemoter.Core.Mapping;
@@ -139,12 +140,42 @@ public static class InputTriggerSettings
         0x09 => "Tab",
         0x1B => "Esc",
         0x08 => "Backspace",
+        0x14 => "CapsLock",
+        0x2C => "PrintScreen",
+        0x2D => "Insert",
         0x2E => "Delete",
+        0x21 => "PageUp",
+        0x22 => "PageDown",
+        0x23 => "End",
+        0x24 => "Home",
+        0x25 => "Left",
+        0x26 => "Up",
+        0x27 => "Right",
+        0x28 => "Down",
+        >= 0x60 and <= 0x69 => $"Num{vk - 0x60}",
+        0x6A => "Num*",
+        0x6B => "Num+",
+        0x6D => "Num-",
+        0x6E => "Num.",
+        0x6F => "Num/",
         >= 0x70 and <= 0x87 => $"F{vk - 0x6F}",
         >= 0x30 and <= 0x39 => ((char)vk).ToString(),
         >= 0x41 and <= 0x5A => ((char)vk).ToString(),
-        _ => $"0x{vk:X2}"
+        _ => FormatMappedCharOrHex(vk)
     };
+
+    private static string FormatMappedCharOrHex(ushort vk)
+    {
+        uint ch = MapVirtualKeyW(vk, 2) & 0xFFFF;
+        if (ch >= 0x21 && ch <= 0x7E)
+        {
+            return ((char)ch).ToString();
+        }
+        return $"0x{vk:X2}";
+    }
+
+    [DllImport("user32.dll")]
+    private static extern uint MapVirtualKeyW(uint uCode, uint uMapType);
 }
 
 public static class VoiceInputMethodProfiles

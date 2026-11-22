@@ -6,6 +6,8 @@
         Height="220"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
+        InputMethod.IsInputMethodEnabled="False"
+        InputMethod.PreferredImeState="Off"
         Background="{StaticResource BrushPanel}">
     <Grid Margin="20">
         <Grid.RowDefinitions>

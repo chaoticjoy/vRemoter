@@ -277,6 +277,22 @@ public partial class RemoteMappingPage : UserControl
                     _mappings.SetTarget(picked.Value, button, _selectedRemote);
                 }
             };
+            combo.PreviewMouseLeftButtonUp += (_, args) =>
+            {
+                if (!combo.IsDropDownOpen) return;
+                var clicked = FindClickedComboOption<RemoteMappingTarget>(args.OriginalSource as DependencyObject);
+                if (clicked is null || !ReferenceEquals(clicked, combo.SelectedItem)) return;
+                if (clicked.Value == RemoteMappingTarget.Custom)
+                {
+                    combo.IsDropDownOpen = false;
+                    OpenShortcutRecorder(button);
+                }
+                else if (clicked.Value == RemoteMappingTarget.OpenApp)
+                {
+                    combo.IsDropDownOpen = false;
+                    OpenAppPicker(button);
+                }
+            };
             Grid.SetColumn(combo, 2);
             grid.Children.Add(combo);
         }
@@ -324,19 +340,36 @@ public partial class RemoteMappingPage : UserControl
         if (_suppressSelectionEvents || TriggerCombo.SelectedItem is not ComboOption<InputTriggerPreset> opt) return;
         if (opt.Value == InputTriggerPreset.Custom)
         {
-            var dialog = new ShortcutRecorderDialog(L10n.Text("语音触发快捷键", "Voice Trigger Key"), chord =>
-            {
-                InputTriggerSettings.CustomChord = new TriggerKeyChord(
-                    BuildTriggerVkList(chord),
-                    chord.Label);
-                _vm.TriggerPreset = InputTriggerPreset.Custom;
-                RefreshTriggerPresetItems();
-            }) { Owner = Window.GetWindow(this) };
-            dialog.ShowDialog();
-            RefreshTriggerPresetItems();
+            OpenCustomTriggerRecorder();
             return;
         }
         _vm.TriggerPreset = opt.Value;
+    }
+
+    private void OnTriggerComboPreviewMouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (!TriggerCombo.IsDropDownOpen) return;
+        var clicked = FindClickedComboOption<InputTriggerPreset>(e.OriginalSource as DependencyObject);
+        if (clicked is null || !ReferenceEquals(clicked, TriggerCombo.SelectedItem) || clicked.Value != InputTriggerPreset.Custom)
+        {
+            return;
+        }
+        TriggerCombo.IsDropDownOpen = false;
+        OpenCustomTriggerRecorder();
+    }
+
+    private void OpenCustomTriggerRecorder()
+    {
+        var dialog = new ShortcutRecorderDialog(L10n.Text("语音触发快捷键", "Voice Trigger Key"), chord =>
+        {
+            InputTriggerSettings.CustomChord = new TriggerKeyChord(
+                BuildTriggerVkList(chord),
+                chord.Label);
+            _vm.TriggerPreset = InputTriggerPreset.Custom;
+            RefreshTriggerPresetItems();
+        }) { Owner = Window.GetWindow(this) };
+        dialog.ShowDialog();
+        RefreshTriggerPresetItems();
     }
 
     private static ushort[] BuildTriggerVkList(RemoteCustomShortcut s)
@@ -372,6 +405,20 @@ public partial class RemoteMappingPage : UserControl
     }
 
     private void OnResetMappingClick(object sender, RoutedEventArgs e) => _mappings.Reset(_selectedRemote);
+
+    private static ComboOption<T>? FindClickedComboOption<T>(DependencyObject? source)
+    {
+        var current = source;
+        while (current is not null)
+        {
+            if (current is ComboBoxItem item)
+            {
+                return item.DataContext as ComboOption<T>;
+            }
+            current = VisualTreeHelper.GetParent(current);
+        }
+        return null;
+    }
 
     private sealed record ComboOption<T>(T Value, string Label);
 }
