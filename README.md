@@ -1,75 +1,76 @@
 # vRemoter 社区版
 
-把蓝牙语音遥控器变成 Mac 上的语音输入和按键控制器：按遥控器语音键，豆包输入法或微信输入法开始语音识别；对着遥控器说话，文字出现在当前窗口。遥控器其他按键可以映射成方向键、快捷键、锁屏、切换应用等操作。
+把蓝牙语音遥控器变成 **macOS 与 Windows** 上的跨平台语音输入与全局快捷键控制器：按遥控器语音键，豆包输入法或微信输入法开始语音识别；对着遥控器说话，文字直接输入到当前应用的指定输入框。遥控器其余按键还可映射为方向键、快捷键、锁屏、切换应用、打开指定应用并自动聚焦等功能。
 
 本项目基于 [ccc333cn/vRemoter](https://github.com/ccc333cn/vRemoter)（原自 [VincentKingHsu/vRemoter](https://github.com/VincentKingHsu/vRemoter)，MIT 协议）继续独立维护。
 
 当前版本：`1.4.0`
 
-## 新增特性（相对上游 v1.3.2）
+## 核心特性（相对上游 v1.3.2）
 
-- **应用切换与输入框自动聚焦**：控制台新增「应用聚焦」页，支持添加需要自动聚焦的桌面应用（如 Antigravity IDE、微信、各类 AI 客户端等）。切回目标应用时自动把输入焦点拉回输入框（即使此前焦点在代码编辑区，也可拉回聊天框；同时避开搜索框/重命名/弹窗）。
-- **打开指定应用 / 一键聚焦输入框**：按键映射新增「打开指定应用…」与「聚焦当前输入框」两种动作，既能一键启动应用并切入输入框，也能随时把当前前台应用的焦点拉回输入框；同时支持 30 秒交互式「指定输入框」保存结构指纹。
-- **自动检查更新与 CI 自动发布**：更新检查指向 `chaoticjoy/vRemoter` 的 [Releases](https://github.com/chaoticjoy/vRemoter/releases)，并配置 GitHub Actions 在打标签时自动完成自测、打包 `.pkg` / `.dmg` 并上传 Release 产物。
+### 1. macOS + Windows 双平台原生支持
 
-## 和原版的区别
+- **macOS（Apple Silicon，macOS 12+）**：原生 Swift 桌面端，延续 `vRemoteDriver.driver` 音频驱动、BLE ATVV 语音直连、按住/点按双触发模式、辅助功能应用切换及 `.pkg` / `.dmg` 安装包。
+- **Windows 10 / 11（x64）**：全新原生 .NET 8 / WPF 桌面端，完整移植并适配 Windows 生态：
+  - **语音与双路音频**：WinRT BLE ATVV 直连收音、WASAPI + VB-Cable 双路麦克风 120ms 对齐混音、豆包输入法 / 微信输入法录音状态闭环监控、左右分侧触发键与点按/长按双模式。
+  - **Chromecast 全按键底层捕获**：自研 `WudfHostHidTap` + `WudfAlpcGattParser` 原生 x64 无锁旁路引擎，从系统 `ntdll.dll` 动态提取 syscall 并拦截 `WUDFHost.exe` 内的 WinRT ALPC GATT（`0x2A4D`）与 `IOCTL 0x80018483` 报文，解决 Google Chromecast 原装遥控器在 Windows 下除语音键外其余按键无法透传到标准 HID / `RawInput` 的问题；同时集成 `hidbthle.inf` 驱动自愈与设备级来源关联。
+  - **CI / Release 双平台自动化**：GitHub Actions 支持推送提交自动分平台测试构建，打 `v*` 标签或手动触发一键打包发布 macOS（`.pkg` / `.dmg`）与 Windows（`Setup.exe` / 便携 `.zip`）。
+
+### 2. 应用焦点管理与自动聚焦（双平台）
+
+- **切换应用时自动聚焦输入框**：「应用聚焦」页支持维护自动聚焦应用名单（内置一键添加 Antigravity IDE、从运行中的应用添加、浏览 `.app` / `.exe`）。无论通过遥控器「切换应用」、系统快捷键还是鼠标切回目标应用，自动将输入焦点拉回聊天/文本输入框（支持「按语音键前检查聚焦」）。
+- **打开指定应用并直达输入框**：按键映射新增「打开指定应用…」，按下遥控器按键即可拉起或激活指定应用并在窗口就绪后自动切入输入框；支持保存时同步加入「切换应用自动聚焦」名单。
+- **一键聚焦当前输入框**：按键映射新增「聚焦当前输入框」，随时一键扫描当前前台应用（macOS AX / Windows UIA3）并将光标切回主输入框。
+- **结构指纹指定输入框（`v2`）**：针对同窗多输入框应用（如 IDE 同时存在代码编辑区与聊天输入框），提供 30 秒交互式「指定输入框」绑定，生成与版本绑定的无文本 SHA-256 结构指纹，跨重启自动恢复；支持从代码区切回时拉回聊天框，同时继续保护搜索框、重命名框、密码框与弹窗菜单不被误抢焦点。
+
+## 和上游社区版的其他差异
 
 - **支持微信输入法**：除豆包外，可以选微信输入法作为语音输入法，vRemoter 会自动切换系统输入。
-- **触发键分左右**：Option、Command、Control、Shift 都可以单独选左侧或右侧，和输入法里的设置一一对应；Fn 不分左右。
-- **两种触发方式**：「点按切换」对应输入法里按一下开始、再按一下结束的快捷键；「按住说话」对应输入法里按住才录音的快捷键，识别期间 vRemoter 会一直按住这个键。
-- **修复**：
-  - Chromecast 遥控器快速轻点语音键时，遥控器麦克风有时没打开，现在会自动重开。
-  - 启用按键映射时系统拒绝独占设备，现在会退回共享模式，按键照样能用。
-  - 遥控器语音连接断开后会自动重连，不再一直停在“正在连接语音服务”。
-- **更新来源**：App 内的“检查更新”读取本仓库的 [Releases](https://github.com/chaoticjoy/vRemoter/releases)。
-- **没有统计和打赏**：去掉了使用统计上报、打赏和购买入口。
-- 原版 1.2.3 的功能全部保留：锁屏、睡眠、切换应用三种映射动作，双路麦克风开关等。
+- **触发键分左右**：macOS 的 Option、Command、Control、Shift 与 Windows 的 Ctrl、Shift、Alt、Win 均可单独选左侧或右侧，不干扰另一侧日常快捷键。
+- **两种触发方式**：「点按切换」对应输入法按一下开始、再按一下结束的快捷键；「按住说话」对应按住才录音的快捷键，识别期间保持按住状态。
+- **稳定性修复**：修复 Chromecast 快速轻点麦克风未开、独占设备失败退回共享模式、语音断连自动重连、切回应用自动聚焦确认与松键防误打断等问题。
+- **更新来源 & 精简入口**：App 内更新检查读取 `chaoticjoy/vRemoter` 的 [Releases](https://github.com/chaoticjoy/vRemoter/releases)，移除使用统计上报、打赏和购买入口。
 
 ## 支持的遥控器
 
-- Google Chromecast 语音遥控器（VID `0x18D1` / PID `0x9450`）
-  - 语音键短按开始、再按结束；长按说话、松开结束。
-  - 方向、确认、返回、Home、YouTube、Netflix、信源、音量等按键都可以映射。
-  - 注意：Google 原装遥控器在 Mac 上只会发送语音键，其他按键收不到；同型号的第三方遥控器全部按键可用。
-- X6 Remote（VID `0x1D5A` / PID `0xC081`）：语音键短按切换。
+- **Google Chromecast 语音遥控器**（VID `0x18D1` / PID `0x9450`）
+  - 语音键支持短按切换、长按说话 / 松开结束。
+  - 方向、确认、返回、Home、YouTube、Netflix、信源、音量、静音、电源等可映射键：
+    - **Windows 10/11（x64）**：原装与兼容遥控器通过 `WudfHostHidTap` ALPC / IOCTL 旁路均支持全部 14 个可映射键。
+    - **macOS**：Google 原装遥控器在 macOS 上仅发送语音键；同型号第三方兼容遥控器支持全部按键。
+- **X6 Remote**（VID `0x1D5A` / PID `0xC081`）：支持语音键短按切换与正面 15 个可映射按键。
 
-## 安装
+## 安装与环境要求
 
-1. 到 [Releases](https://github.com/chaoticjoy/vRemoter/releases) 下载最新的 `.pkg`（仅升级 App 也可下载 `.dmg`）。
-   - 只支持 **Apple 芯片（M 系列）** 的 Mac，macOS 12 或更高版本。
-2. 安装包**没有签名**，双击会被 macOS 拦下：到“系统设置 → 隐私与安全性”，点“仍要打开”。
-3. 安装时会重启系统音频服务，正在播放的声音会断一下。
-4. 首次打开需要授权：辅助功能、输入监控、蓝牙、麦克风。App 里有分步引导。
+### macOS
+1. 到 [Releases](https://github.com/chaoticjoy/vRemoter/releases) 下载最新的 `.pkg`（仅升级 App 可下载 `.dmg`）。
+   - 仅支持 **Apple 芯片（M 系列）** 的 Mac，**macOS 12** 或更高版本。
+2. 安装包无公证签名，首次打开请到“系统设置 → 隐私与安全性”点击“仍要打开”。
+3. 安装时会重启系统音频服务，并按界面引导授予辅助功能、输入监控、蓝牙、麦克风权限。
 
-**从原版或旧社区版升级**：
+### Windows
+1. 到 [Releases](https://github.com/chaoticjoy/vRemoter/releases) 下载 `Setup.exe` 安装包（或 `Portable.zip` 便携版）。
+   - 支持 **Windows 10（1809 / Build `17763` 及以上）** 与 **Windows 11**，**仅限 x64 架构**（不支持 Win7/Win8、Win10 1803 及以下、ARM64 或 x86）。
+   - 已在 **Windows 10 Build 19045（x64）** 实机验证通过；Windows 11（x64）基于通用 WinRT / UIA3 / 动态 syscall 设计理论兼容，建议实际使用中进一步验证。
+2. 程序需以**管理员权限**运行（用于 `WUDFHost.exe` 按键旁路捕获及 UIPI 全局聚焦）；语音混音需提前安装虚拟声卡驱动（如 **VB-Cable**），并在豆包/微信输入法中将麦克风设为对应虚拟音频输入设备。
 
-- 安装后会替换 `/Applications/vRemote.app`，原版的设置（触发键、按键映射等）会自动导入。
-- 因为 App 标识变了，macOS 会把它当成新 App，**需要重新授权一次**上面的权限。系统设置里原来的“vRemoter”条目可以删掉。
-- 旧版本（包括 1.1.1 社区修复版）的更新检查指向原作者的服务器，会提示更新到原版。请手动安装本版本一次，之后的更新都从本仓库获取。
+**从原版或旧社区版升级（macOS）**：
+- 安装后将替换 `/Applications/vRemote.app` 并自动导入原版配置；因应用标识变更需重新授予权限一次。
 
 ## 设置输入法
 
-- **豆包输入法**：在豆包设置里把麦克风选为 `vRemoteDr 2ch`。
-- **微信输入法**：vRemoter 会自动把系统输入切到 `vRemoteDr 2ch`。
-
-然后让 vRemoter 的**触发键**和**触发方式**都与输入法里的语音快捷键一致：
-
-- 快捷键设在输入法“按一下开始、再按一下结束”的那一栏（例如微信输入法的“启动语音输入”），选「点按切换」。
-- 快捷键设在输入法“按住说话”的那一栏，选「按住说话」。选错了的典型现象是：按一下遥控器，麦克风亮一下马上就灭。
-- 「按住说话」时，识别期间这个键一直处于按下状态，这时用电脑键盘打字会带上这个修饰键。
-
-触发键选 Fn 时，实际效果取决于 Mac 和输入法的设置，建议先试一下。
+- **豆包输入法**：在豆包设置里把麦克风选为虚拟输入设备（macOS 为 `vRemoteDr 2ch`，Windows 为 VB-Cable 输出端 / 混音通路）。
+- **微信输入法**：vRemoter 会自动把系统输入切到遥控器语音混音通道。
+- 请确保 vRemoter 中的**触发键**（及左右侧）与**触发方式**（点按切换 / 按住说话）和输入法内快捷键一致。
 
 ### macOS 14.2 以下：兼容模式
 
-macOS 12、13、14.0、14.1 没有办法查询输入法是否正在录音，vRemoter 会自动进入「兼容模式」，状态里会显示“兼容模式”。这时开关麦克风完全听按键的：
-
-- **建议用「按住说话」**：按住录音、松开结束，不会错位。
-- 用「点按切换」时，如果输入法自己停止了识别（例如静音一段时间后自动结束），vRemoter 看不到，遥控器的麦克风会继续开着，下一次按键的开关就反了。遇到这种情况，在 vRemoter 菜单里点“关闭麦克风”，再重新按一次即可。
+macOS 12、13、14.0、14.1 无法读取输入法实时录音状态，vRemoter 会自动进入「兼容模式」，建议使用「按住说话」以免状态错位。
 
 ## 从源码构建
 
-需要 Xcode 命令行工具（Swift 5.9+）。
+### macOS
+需要 Xcode 命令行工具（Swift 5.9+）：
 
 ```bash
 Scripts/run-self-tests.sh
@@ -77,13 +78,18 @@ Scripts/package-app.sh
 VREMOTER_DRIVER=/path/to/vRemoteDriver.driver Scripts/build-pkg.sh
 ```
 
-- `package-app.sh` 生成 `dist/build/vRemote.app`。
-- `build-pkg.sh` 生成包含 App 和音频驱动的安装包。驱动可以用 `VREMOTER_DRIVER` 指定一个现成的 `vRemoteDriver.driver`（例如从上一版安装包里取出）；不指定时，会用本机已安装的 BlackHole 2ch 重新生成，见 [Driver/README.md](Driver/README.md)。
+### Windows
+需要 .NET 8 SDK：
+
+```powershell
+dotnet test Windows/vRemoter.sln -c Release
+dotnet publish Windows/src/vRemoter.Windows/vRemoter.Windows.csproj -c Release -r win-x64 --self-contained true
+```
 
 ## 许可
 
-- vRemoter 代码使用 MIT 协议，保留原作者的版权声明，见 [LICENSE](LICENSE)。
-- 音频驱动 `vRemoteDriver.driver` 是 [BlackHole](https://github.com/ExistentialAudio/BlackHole) 0.4.1 的修改版，使用 GNU GPL v3 协议。修改方式见 [Driver/build-driver.sh](Driver/build-driver.sh)，BlackHole 源码见其仓库。
+- vRemoter 代码使用 MIT 协议，见 [LICENSE](LICENSE)。
+- macOS 音频驱动 `vRemoteDriver.driver` 基于 [BlackHole](https://github.com/ExistentialAudio/BlackHole) 0.4.1（GPL v3），详见 [Driver/README.md](Driver/README.md)。
 - 其他第三方代码见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
-完整历史见 [CHANGELOG.md](CHANGELOG.md)。
+完整更新记录见 [CHANGELOG.md](CHANGELOG.md)。
