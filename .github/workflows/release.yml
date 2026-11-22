@@ -6,6 +6,15 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
+      platforms:
+        description: 'Platforms to build & publish'
+        type: choice
+        required: true
+        default: 'all'
+        options:
+          - windows
+          - all
+          - macos
       tag:
         description: 'Release tag (e.g. v1.4.0); defaults to v<VERSION>'
         required: false
@@ -18,11 +27,47 @@ env:
   UPSTREAM_PKG_SHA256: a86115de7f9a1fcc262f51dd494b80a5f660661c1d01afc6b6ad5ba488e09445
 
 jobs:
-  build-macos:
-    runs-on: macos-15
+  resolve-meta:
+    runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.meta.outputs.version }}
       tag: ${{ steps.meta.outputs.tag }}
+      run_macos: ${{ steps.meta.outputs.run_macos }}
+      run_windows: ${{ steps.meta.outputs.run_windows }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve Version, Tag & Target Platforms
+        id: meta
+        run: |
+          VERSION=$(tr -d '[:space:]' < VERSION)
+          if [[ -n "${{ github.event.inputs.tag }}" ]]; then
+            TAG="${{ github.event.inputs.tag }}"
+          elif [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="v${VERSION}"
+          fi
+
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            RUN_MAC="true"
+            RUN_WIN="true"
+          else
+            PLAT="${{ github.event.inputs.platforms }}"
+            [[ "$PLAT" == "all" || "$PLAT" == "macos" ]] && RUN_MAC="true" || RUN_MAC="false"
+            [[ "$PLAT" == "all" || "$PLAT" == "windows" ]] && RUN_WIN="true" || RUN_WIN="false"
+          fi
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "run_macos=${RUN_MAC}" >> "$GITHUB_OUTPUT"
+          echo "run_windows=${RUN_WIN}" >> "$GITHUB_OUTPUT"
+
+  build-macos:
+    needs: resolve-meta
+    if: needs.resolve-meta.outputs.run_macos == 'true'
+    runs-on: macos-15
+    outputs:
       pkg_sha: ${{ steps.pkg.outputs.pkg_sha }}
       dmg_sha: ${{ steps.pkg.outputs.dmg_sha }}
     steps:
@@ -33,20 +78,6 @@ jobs:
           swift build --disable-sandbox
           .build/debug/vRemote --voice-session-self-test
           Scripts/run-self-tests.sh
-
-      - name: Resolve Version & Tag
-        id: meta
-        run: |
-          PLIST_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Packaging/Info.plist)
-          if [[ -n "${{ github.event.inputs.tag }}" ]]; then
-            TAG="${{ github.event.inputs.tag }}"
-          elif [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
-            TAG="${GITHUB_REF_NAME}"
-          else
-            TAG="v${PLIST_VERSION}"
-          fi
-          echo "version=${PLIST_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Prepare vRemoteDriver.driver from Upstream v1.3.2 PKG
         run: |
@@ -59,7 +90,7 @@ jobs:
       - name: Build PKG and DMG
         id: pkg
         run: |
-          VERSION="${{ steps.meta.outputs.version }}"
+          VERSION="${{ needs.resolve-meta.outputs.version }}"
           export VREMOTER_DRIVER="/tmp/upstream-expanded/Payload/Library/Audio/Plug-Ins/HAL/vRemoteDriver.driver"
           Scripts/build-pkg.sh
           Scripts/build-dmg.sh
@@ -76,10 +107,12 @@ jobs:
         with:
           name: macos-dist
           path: |
-            dist/vRemoter-Community-${{ steps.meta.outputs.version }}-AppleSilicon.pkg
-            dist/vRemoter-Community-${{ steps.meta.outputs.version }}-AppleSilicon.dmg
+            dist/vRemoter-Community-${{ needs.resolve-meta.outputs.version }}-AppleSilicon.pkg
+            dist/vRemoter-Community-${{ needs.resolve-meta.outputs.version }}-AppleSilicon.dmg
 
   build-windows:
+    needs: resolve-meta
+    if: needs.resolve-meta.outputs.run_windows == 'true'
     runs-on: windows-latest
     outputs:
       exe_sha: ${{ steps.winpkg.outputs.exe_sha }}
@@ -92,13 +125,6 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Resolve Version
-        id: winmeta
-        shell: pwsh
-        run: |
-          $ver = (Get-Content -Raw VERSION).Trim()
-          echo "version=$ver" >> $env:GITHUB_OUTPUT
-
       - name: Run Windows Core Tests
         run: dotnet test Windows/vRemoter.sln -c Release
 
@@ -106,7 +132,7 @@ jobs:
         id: winpkg
         shell: pwsh
         run: |
-          $ver = "${{ steps.winmeta.outputs.version }}"
+          $ver = "${{ needs.resolve-meta.outputs.version }}"
           dotnet publish Windows/src/vRemoter.Windows/vRemoter.Windows.csproj `
             -c Release -r win-x64 --self-contained true `
             -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
@@ -127,11 +153,17 @@ jobs:
         with:
           name: windows-dist
           path: |
-            Windows/dist/vRemoter-Community-${{ steps.winmeta.outputs.version }}-Windows-x64-Setup.exe
-            Windows/dist/vRemoter-Community-${{ steps.winmeta.outputs.version }}-Windows-x64-Portable.zip
+            Windows/dist/vRemoter-Community-${{ needs.resolve-meta.outputs.version }}-Windows-x64-Setup.exe
+            Windows/dist/vRemoter-Community-${{ needs.resolve-meta.outputs.version }}-Windows-x64-Portable.zip
 
   publish-release:
-    needs: [build-macos, build-windows]
+    needs: [resolve-meta, build-macos, build-windows]
+    if: |
+      always() &&
+      !cancelled() &&
+      (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped') &&
+      (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped') &&
+      (needs.build-macos.result == 'success' || needs.build-windows.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -139,34 +171,108 @@ jobs:
           path: artifacts
 
       - name: Prepare Release Notes
+        id: notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.resolve-meta.outputs.version }}
+          TAG: ${{ needs.resolve-meta.outputs.tag }}
+          MAC_BUILT: ${{ needs.build-macos.result == 'success' }}
+          WIN_BUILT: ${{ needs.build-windows.result == 'success' }}
+          PKG_SHA: ${{ needs.build-macos.outputs.pkg_sha }}
+          DMG_SHA: ${{ needs.build-macos.outputs.dmg_sha }}
+          EXE_SHA: ${{ needs.build-windows.outputs.exe_sha }}
+          ZIP_SHA: ${{ needs.build-windows.outputs.zip_sha }}
         run: |
-          VERSION="${{ needs.build-macos.outputs.version }}"
-          {
-            echo "## 安装说明"
-            echo ""
-            echo "### macOS (Apple Silicon)"
-            echo "- 支持 Apple 芯片（M 系列）Mac，macOS 12 或更高版本。"
-            echo "- 首次安装请下载 \`vRemoter-Community-${VERSION}-AppleSilicon.pkg\`（包含 App 与 \`vRemoteDriver.driver\` 音频驱动）；仅升级 App 可下载 \`.dmg\`。"
-            echo "- 安装包未签名，如被系统拦截请到 **系统设置 → 隐私与安全性 → 仍要打开**。"
-            echo ""
-            echo "### Windows 10 / 11 (x64)"
-            echo "- 支持 Windows 10 (1809+) 与 Windows 11，推荐下载 \`vRemoter-Community-${VERSION}-Windows-x64-Setup.exe\`（便携免安装版为 \`.zip\`）。"
-            echo "- 首次使用需在主界面引导中一键安装 WHQL 签名虚拟声卡 **VB-Cable**。"
-            echo ""
-            echo "### SHA-256"
-            echo "- \`vRemoter-Community-${VERSION}-AppleSilicon.pkg\`: \`${{ needs.build-macos.outputs.pkg_sha }}\`"
-            echo "- \`vRemoter-Community-${VERSION}-AppleSilicon.dmg\`: \`${{ needs.build-macos.outputs.dmg_sha }}\`"
-            echo "- \`vRemoter-Community-${VERSION}-Windows-x64-Setup.exe\`: \`${{ needs.build-windows.outputs.exe_sha }}\`"
-            echo "- \`vRemoter-Community-${VERSION}-Windows-x64-Portable.zip\`: \`${{ needs.build-windows.outputs.zip_sha }}\`"
-          } > /tmp/release-notes.md
+          EXISTING_BODY=$(gh release view "$TAG" --repo "${{ github.repository }}" --json body -q .body 2>/dev/null || true)
+          export EXISTING_BODY
+          if [[ -n "$EXISTING_BODY" ]]; then
+            echo "generate_notes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "generate_notes=true" >> "$GITHUB_OUTPUT"
+          fi
+          python3 - <<'PY' > /tmp/release-notes.md
+          import os, re
+
+          ver = os.environ["VERSION"]
+          mac_built = os.environ["MAC_BUILT"] == "true"
+          win_built = os.environ["WIN_BUILT"] == "true"
+          pkg_sha = os.environ.get("PKG_SHA", "")
+          dmg_sha = os.environ.get("DMG_SHA", "")
+          exe_sha = os.environ.get("EXE_SHA", "")
+          zip_sha = os.environ.get("ZIP_SHA", "")
+          existing = os.environ.get("EXISTING_BODY", "").strip()
+
+          mac_section = (
+              "### macOS (Apple Silicon)\n"
+              "- 支持 Apple 芯片（M 系列）Mac，macOS 12 或更高版本。\n"
+              f"- 首次安装请下载 `vRemoter-Community-{ver}-AppleSilicon.pkg`（包含 App 与 `vRemoteDriver.driver` 音频驱动）；仅升级 App 可下载 `.dmg`。\n"
+              "- 安装包未签名，如被系统拦截请到 **系统设置 → 隐私与安全性 → 仍要打开**。"
+          )
+          win_section = (
+              "### Windows 10 / 11 (x64)\n"
+              f"- 支持 Windows 10 (1809+) 与 Windows 11，推荐下载 `vRemoter-Community-{ver}-Windows-x64-Setup.exe`（便携免安装版为 `.zip`）。\n"
+              "- 首次使用需在主界面引导中一键安装 WHQL 签名虚拟声卡 **VB-Cable**。"
+          )
+
+          if mac_built and win_built:
+              print("## 安装说明\n")
+              print(mac_section + "\n")
+              print(win_section + "\n")
+              print("### SHA-256")
+              print(f"- `vRemoter-Community-{ver}-AppleSilicon.pkg`: `{pkg_sha}`")
+              print(f"- `vRemoter-Community-{ver}-AppleSilicon.dmg`: `{dmg_sha}`")
+              print(f"- `vRemoter-Community-{ver}-Windows-x64-Setup.exe`: `{exe_sha}`")
+              print(f"- `vRemoter-Community-{ver}-Windows-x64-Portable.zip`: `{zip_sha}`")
+          elif existing:
+              body = existing
+              if win_built:
+                  if "### Windows 10 / 11 (x64)" not in body:
+                      if "### SHA-256" in body:
+                          body = body.replace("### SHA-256", win_section + "\n\n### SHA-256", 1)
+                      else:
+                          body = body + "\n\n" + win_section
+                  for fname, sha in [
+                      (f"vRemoter-Community-{ver}-Windows-x64-Setup.exe", exe_sha),
+                      (f"vRemoter-Community-{ver}-Windows-x64-Portable.zip", zip_sha),
+                  ]:
+                      pattern = rf"^- `{re.escape(fname)}`: `[^`]*`$"
+                      line = f"- `{fname}`: `{sha}`"
+                      if re.search(pattern, body, flags=re.M):
+                          body = re.sub(pattern, line, body, flags=re.M)
+                      else:
+                          body = body.rstrip() + "\n" + line
+              if mac_built:
+                  for fname, sha in [
+                      (f"vRemoter-Community-{ver}-AppleSilicon.pkg", pkg_sha),
+                      (f"vRemoter-Community-{ver}-AppleSilicon.dmg", dmg_sha),
+                  ]:
+                      pattern = rf"^- `{re.escape(fname)}`: `[^`]*`$"
+                      line = f"- `{fname}`: `{sha}`"
+                      if re.search(pattern, body, flags=re.M):
+                          body = re.sub(pattern, line, body, flags=re.M)
+                      else:
+                          body = body.rstrip() + "\n" + line
+              print(body)
+          else:
+              print("## 安装说明\n")
+              if mac_built:
+                  print(mac_section + "\n")
+              if win_built:
+                  print(win_section + "\n")
+              print("### SHA-256")
+              if mac_built:
+                  print(f"- `vRemoter-Community-{ver}-AppleSilicon.pkg`: `{pkg_sha}`")
+                  print(f"- `vRemoter-Community-{ver}-AppleSilicon.dmg`: `{dmg_sha}`")
+              if win_built:
+                  print(f"- `vRemoter-Community-{ver}-Windows-x64-Setup.exe`: `{exe_sha}`")
+                  print(f"- `vRemoter-Community-{ver}-Windows-x64-Portable.zip`: `{zip_sha}`")
+          PY
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.build-macos.outputs.tag }}
-          name: vRemoter ${{ needs.build-macos.outputs.version }}
+          tag_name: ${{ needs.resolve-meta.outputs.tag }}
+          name: vRemoter ${{ needs.resolve-meta.outputs.version }}
           body_path: /tmp/release-notes.md
-          generate_release_notes: true
-          files: |
-            artifacts/macos-dist/*
-            artifacts/windows-dist/*
+          generate_release_notes: ${{ steps.notes.outputs.generate_notes }}
+          files: artifacts/*/*

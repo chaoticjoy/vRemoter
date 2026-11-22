@@ -1,21 +1,24 @@
 # 更新日志
 
-## v1.4.0 · 2026-11-21
+## v1.4.0 · 2026-11-22
 
 ### 新功能
 
-- **打开指定应用并聚焦输入框**：按键映射新增「打开指定应用…」，可选择任意 `.app` 桌面应用；按下遥控器按键即可拉起或切到该应用，并在窗口就绪后自动将输入焦点切入输入框。
-- **切换应用时自动聚焦输入框**：控制台新增「应用聚焦」标签页，支持维护自动聚焦应用列表（内置一键添加 Antigravity IDE、从运行中添加、浏览本地 `.app`）。通过遥控器「切换应用」、`Command+Tab` 或鼠标切回这些应用时，自动将焦点拉回输入框；支持「按语音键前检查聚焦」。
+- **Windows 10 / 11（x64）桌面端支持**：移植完整功能至 Windows 平台，支持 Chromecast / X6 双遥控器 BLE ATVV 语音直连、WASAPI + VB-Cable 双路麦克风 120ms 对齐混音、豆包输入法 / 微信输入法录音状态实时闭环监控、左右分侧触发键与点按/长按双模式、按键重映射、深色浮层应用切换器、打开指定应用与 UIA3 输入框自动聚焦。
+- **打开指定应用并聚焦输入框**：按键映射新增「打开指定应用…」，可选择任意桌面应用（macOS `.app` / Windows `.exe`）；按下遥控器按键即可拉起或切到该应用，并在窗口就绪后自动将输入焦点切入输入框。
+- **切换应用时自动聚焦输入框**：控制台新增「应用聚焦」标签页，支持维护自动聚焦应用列表（内置一键添加 Antigravity IDE、从运行中添加、浏览本地应用）。通过遥控器「切换应用」、系统切换快捷键或鼠标切回这些应用时，自动将焦点拉回输入框；支持「按语音键前检查聚焦」。
 - **一键聚焦当前输入框**：按键映射新增「聚焦当前输入框」，按下可立即扫描当前前台应用并把光标切入其输入框（支持从代码编辑区等非聊天区直接拉回输入框）。
 - **结构指纹指定输入框**：针对同一窗口存在多个文本输入区的应用（如 IDE 同时打开代码区和聊天区），支持 30 秒交互式「指定输入框」绑定，生成与版本绑定的无文本 SHA-256 结构指纹（`v2`），重启后自动找回。
-- **GitHub Actions 自动构建与发布**：新增 CI 与 Release 工作流，推送 `v*` 标签后自动运行自测、编译打包 `.pkg` / `.dmg` 并上传至 GitHub Releases。
+- **GitHub Actions 自动构建与分平台发布**：支持 CI 自动测试与构建，Release 工作流支持打 `v*` 标签双平台一键发布，也支持手动单独触发 Windows 或 macOS 发布流程。
 
 ### 改进与修复
 
-- **适配 Electron / WebView 桌面应用（如 Antigravity IDE）**：自动请求 `AXEnhancedUserInterface` 唤醒辅助功能树，节点遍历上限提升至 5000，并同时识别 `AXDescription`（如 `"Message input"`）、`AXIdentifier`、`AXDOMIdentifier` 与 `AXPlaceholderValue`。
+- **修复 Windows 按键映射页面下拉框文字不可见问题**：重写 `ConsoleComboBoxStyle` 与 `ConsoleComboBoxItemStyle` 深色控件模板，解决 Windows WPF 默认亮色下拉背景与白色前景色冲突导致文字看不见的问题，并优化标签页与设备卡片悬停样式。
+- **修复 Windows 遥控器按键映射链路与兼容多类 HID 上报**：将 `HidCollectionReader` 从 `FileStream` 迁移至 Win32 原生异步 `ReadFile` + `OVERLAPPED`，按集合 `(UsagePage, Usage)` 精确判断活跃直读流，解除对 `RawInput` 回退路径的误屏蔽；新增 `RawInput` 多包拆分、`HidP_GetUsagesEx` 标准 Consumer/Keyboard 解析、`RIM_TYPEKEYBOARD` 虚拟键映射支持与未匹配键值诊断日志；同步清理 `AUDIO_STOP` 空闲残留日志。
+- **适配 Electron / WebView 桌面应用（如 Antigravity IDE）**：自动请求 `AXEnhancedUserInterface`（macOS）/ UIA3（Windows）唤醒辅助功能树，并同时识别常见聊天输入框属性。
 - **解决切回 IDE 时焦点停留在代码编辑区的问题**：新增「从代码区等位置切回时也拉回输入框」选项（默认开启），从代码编辑区切回时可正确拉回聊天输入框，同时继续保护搜索框、重命名框、密码框与弹窗菜单不被误抢焦点。
-- **修复后台线程前台应用状态滞后与误中断问题**：前台应用改由主线程激活事件同步与实时 `kAXFocusedApplicationAttribute` 联合获取；移除触控板惯性滚动对输入打断判定的干扰。
-- **维护仓库迁移**：更新源切换至 `chaoticjoy/vRemoter`（保留原 Bundle ID，升级无需重新授予 macOS 权限）。
+- **修复后台线程前台应用状态滞后与误中断问题**：前台应用改由主线程激活事件同步与实时前台查询联合获取；移除触控板惯性滚动对输入打断判定的干扰。
+- **维护仓库迁移**：更新源切换至 `chaoticjoy/vRemoter`（保留原 Bundle ID，macOS 升级无需重新授予权限）。
 
 ## v1.3.2 社区版 · 2026-11-12
 

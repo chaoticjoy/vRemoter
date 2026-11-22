@@ -164,7 +164,20 @@ public sealed partial class WinRtBleBridge
 
         _wavRecorder?.Dispose();
         _wavRecorder = null;
-        LogService.Write($"[{_logTag}] AUDIO_STOP reason=0x{reason:x2} frames={_streamFrameCount} samples={_streamSampleCount} syncs={_streamSyncCount}");
+        if (wasStreaming)
+        {
+            LogService.Write($"[{_logTag}] AUDIO_STOP reason=0x{reason:x2} frames={_streamFrameCount} samples={_streamSampleCount} syncs={_streamSyncCount}");
+        }
+        else
+        {
+            LogService.Write($"[{_logTag}] AUDIO_STOP (idle) reason=0x{reason:x2}");
+        }
+        _streamFrameCount = 0;
+        _streamSampleCount = 0;
+        _streamPeak = 0;
+        _streamSumSq = 0;
+        _streamClippedCount = 0;
+        _streamSyncCount = 0;
     }
 
     private async Task WriteCommandAsync(byte[] data)

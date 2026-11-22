@@ -255,7 +255,7 @@ public partial class RemoteMappingPage : UserControl
                 ItemsSource = options,
                 DisplayMemberPath = nameof(ComboOption<RemoteMappingTarget>.Label),
                 SelectedIndex = Math.Max(0, options.FindIndex(o => o.Value == current)),
-                Width = 175,
+                Width = 185,
                 HorizontalAlignment = HorizontalAlignment.Right
             };
             combo.SelectionChanged += (_, _) =>

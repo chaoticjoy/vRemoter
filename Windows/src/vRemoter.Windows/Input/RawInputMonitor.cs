@@ -12,7 +12,7 @@ namespace vRemoter.Windows.Input;
 /// keyboard/consumer/system events from VID/PID-matched remotes are observed
 /// even when kbdhid.sys holds exclusive CreateFile access.
 /// </summary>
-public sealed partial class RawInputMonitor : IDisposable
+public sealed class RawInputMonitor : IDisposable
 {
     private const int WmInput = 0x00FF;
     private const int WmDeviceChange = 0x0219;
@@ -26,15 +26,17 @@ public sealed partial class RawInputMonitor : IDisposable
     private const ushort RiKeyBreak = 0x0001;
     private static readonly IntPtr HwndMessage = new(-3);
 
-    private static readonly Regex VidRegex = new(@"VID(?:_|&(?:0[12])?)([0-9A-Fa-f]{4})", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex VidRegex = new(@"VID(?:_|&(?:[0-9A-Fa-f]{2})?(?=[0-9A-Fa-f]{4}))([0-9A-Fa-f]{4})", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex PidRegex = new(@"PID(?:_|&)([0-9A-Fa-f]{4})", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    private readonly Dictionary<IntPtr, (ushort Vid, ushort Pid)> _deviceCache = [];
+    private readonly record struct DeviceIdentity(ushort Vid, ushort Pid, ushort UsagePage, ushort Usage);
+
+    private readonly Dictionary<IntPtr, DeviceIdentity> _deviceCache = [];
     private HwndSource? _hwndSource;
     private bool _started;
 
     public event Action<ushort, ushort, ushort, bool, ushort>? KeyboardReportReceived;
-    public event Action<ushort, ushort, byte[]>? HidReportReceived;
+    public event Action<ushort, ushort, ushort, ushort, byte[]>? HidReportReceived;
     public event Action? DeviceTopologyChanged;
 
     public void Start()
@@ -115,7 +117,7 @@ public sealed partial class RawInputMonitor : IDisposable
             }
 
             var header = Marshal.PtrToStructure<RAWINPUTHEADER>(buffer);
-            if (!TryGetVidPid(header.HDevice, out ushort vid, out ushort pid))
+            if (!TryGetIdentity(header.HDevice, out var identity))
             {
                 return;
             }
@@ -124,18 +126,22 @@ public sealed partial class RawInputMonitor : IDisposable
             {
                 var kb = Marshal.PtrToStructure<RAWKEYBOARD>(IntPtr.Add(buffer, (int)headerSize));
                 bool isDown = (kb.Flags & RiKeyBreak) == 0;
-                KeyboardReportReceived?.Invoke(vid, pid, kb.VKey, isDown, kb.MakeCode);
+                KeyboardReportReceived?.Invoke(identity.Vid, identity.Pid, kb.VKey, isDown, kb.MakeCode);
             }
             else if (header.DwType == RimTypeHid)
             {
                 var hid = Marshal.PtrToStructure<RAWHID>(IntPtr.Add(buffer, (int)headerSize));
-                int dataLen = (int)(hid.DwSizeHid * hid.DwCount);
-                if (dataLen > 0)
+                int itemSize = (int)hid.DwSizeHid;
+                int count = (int)hid.DwCount;
+                int totalLen = itemSize * count;
+                if (itemSize <= 0 || count <= 0 || headerSize + 8 + totalLen > size) return;
+
+                IntPtr dataPtr = IntPtr.Add(buffer, (int)headerSize + 8);
+                for (int i = 0; i < count; i++)
                 {
-                    IntPtr dataPtr = IntPtr.Add(buffer, (int)headerSize + 8);
-                    byte[] payload = new byte[dataLen];
-                    Marshal.Copy(dataPtr, payload, 0, dataLen);
-                    HidReportReceived?.Invoke(vid, pid, payload);
+                    byte[] report = new byte[itemSize];
+                    Marshal.Copy(IntPtr.Add(dataPtr, i * itemSize), report, 0, itemSize);
+                    HidReportReceived?.Invoke(identity.Vid, identity.Pid, identity.UsagePage, identity.Usage, report);
                 }
             }
         }
@@ -145,18 +151,16 @@ public sealed partial class RawInputMonitor : IDisposable
         }
     }
 
-    private bool TryGetVidPid(IntPtr hDevice, out ushort vid, out ushort pid)
+    private bool TryGetIdentity(IntPtr hDevice, out DeviceIdentity identity)
     {
         if (hDevice == IntPtr.Zero)
         {
-            vid = pid = 0;
+            identity = default;
             return false;
         }
-        if (_deviceCache.TryGetValue(hDevice, out var cached))
+        if (_deviceCache.TryGetValue(hDevice, out identity))
         {
-            vid = cached.Vid;
-            pid = cached.Pid;
-            return vid != 0;
+            return identity.Vid != 0;
         }
 
         uint size = (uint)Marshal.SizeOf<RID_DEVICE_INFO>();
@@ -165,13 +169,16 @@ public sealed partial class RawInputMonitor : IDisposable
             info.DwType == RimTypeHid &&
             info.Hid.DwVendorId != 0)
         {
-            vid = (ushort)info.Hid.DwVendorId;
-            pid = (ushort)info.Hid.DwProductId;
-            _deviceCache[hDevice] = (vid, pid);
+            identity = new DeviceIdentity(
+                (ushort)info.Hid.DwVendorId,
+                (ushort)info.Hid.DwProductId,
+                info.Hid.UsUsagePage,
+                info.Hid.UsUsage);
+            _deviceCache[hDevice] = identity;
             return true;
         }
 
-        // For RIM_TYPEKEYBOARD (e.g. BLE HOGP X6 keyboard collection), Windows does not
+        // For RIM_TYPEKEYBOARD (e.g. BLE HOGP keyboard collection), Windows does not
         // populate RID_DEVICE_INFO_HID; resolve VID/PID from RIDI_DEVICENAME instead.
         uint charCount = 0;
         if (GetRawInputDeviceInfoCharW(hDevice, RidiDeviceName, null, ref charCount) != unchecked((uint)-1) &&
@@ -184,17 +191,18 @@ public sealed partial class RawInputMonitor : IDisposable
                 var vm = VidRegex.Match(devName);
                 var pm = PidRegex.Match(devName);
                 if (vm.Success && pm.Success &&
-                    ushort.TryParse(vm.Groups[1].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out vid) &&
-                    ushort.TryParse(pm.Groups[1].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out pid))
+                    ushort.TryParse(vm.Groups[1].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ushort vid) &&
+                    ushort.TryParse(pm.Groups[1].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ushort pid))
                 {
-                    _deviceCache[hDevice] = (vid, pid);
+                    identity = new DeviceIdentity(vid, pid, 0x0001, 0x0006);
+                    _deviceCache[hDevice] = identity;
                     return true;
                 }
             }
         }
 
-        _deviceCache[hDevice] = (0, 0);
-        vid = pid = 0;
+        _deviceCache[hDevice] = default;
+        identity = default;
         return false;
     }
 

@@ -54,8 +54,8 @@
                     <TextBlock x:Name="SupportedDevicesHeader" DockPanel.Dock="Top" Text="支持的设备" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource BrushSecondary}" Margin="0,0,0,10" />
                     <TextBlock x:Name="ProfileNote" DockPanel.Dock="Bottom" Text="设置跟随型号，不绑定某一只遥控器" FontSize="10.5" Foreground="{StaticResource BrushGreen}" TextWrapping="Wrap" />
                     <StackPanel>
-                        <Button x:Name="ChromecastCardBtn" Click="OnSelectChromecast" Background="Transparent" BorderThickness="0" Padding="0" HorizontalContentAlignment="Stretch" Margin="0,0,0,10" Cursor="Hand" />
-                        <Button x:Name="X6CardBtn" Click="OnSelectX6" Background="Transparent" BorderThickness="0" Padding="0" HorizontalContentAlignment="Stretch" Cursor="Hand" />
+                        <Button x:Name="ChromecastCardBtn" Style="{StaticResource ConsoleBareButtonStyle}" Click="OnSelectChromecast" HorizontalContentAlignment="Stretch" Margin="0,0,0,10" Cursor="Hand" />
+                        <Button x:Name="X6CardBtn" Style="{StaticResource ConsoleBareButtonStyle}" Click="OnSelectX6" HorizontalContentAlignment="Stretch" Cursor="Hand" />
                     </StackPanel>
                 </DockPanel>
             </Border>

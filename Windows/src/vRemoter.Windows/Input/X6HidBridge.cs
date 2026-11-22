@@ -52,6 +52,7 @@ public sealed class X6HidBridge : IDisposable
         _reader = new HidCollectionReader(VendorId, ProductId, "X6-HID");
         _reader.ConnectionChanged += connected => ConnectionChanged?.Invoke(connected);
         _reader.InputReportReceived += OnHidReport;
+        rawInput.HidReportReceived += OnRawHidReport;
         rawInput.KeyboardReportReceived += OnRawKeyboard;
         rawInput.DeviceTopologyChanged += _reader.RefreshDevices;
     }
@@ -78,7 +79,18 @@ public sealed class X6HidBridge : IDisposable
         LogService.Write($"[X6-HID] remapping={(enabled ? "ON" : "OFF")}");
     }
 
-    private void OnHidReport(byte reportId, byte[] payload)
+    private void OnRawHidReport(ushort vid, ushort pid, ushort usagePage, ushort usage, byte[] raw)
+    {
+        if (vid != VendorId || pid != ProductId || raw.Length < 2) return;
+        if (usagePage != 0 && usage != 0 && _reader.HasOpenStream(usagePage, usage)) return;
+        if (usagePage == 0 && _reader.HasAnyOpenStream) return;
+
+        ProcessReport(raw[0], raw[1..]);
+    }
+
+    private void OnHidReport(HidInputReport report) => ProcessReport(report.ReportId, report.Payload);
+
+    private void ProcessReport(byte reportId, byte[] payload)
     {
         switch (reportId)
         {

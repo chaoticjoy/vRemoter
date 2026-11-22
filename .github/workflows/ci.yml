@@ -5,9 +5,70 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: 'Platforms to build & test'
+        type: choice
+        required: true
+        default: 'all'
+        options:
+          - all
+          - windows
+          - macos
 
 jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      run_macos: ${{ steps.filter.outputs.run_macos }}
+      run_windows: ${{ steps.filter.outputs.run_windows }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect Changed Platforms
+        id: filter
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            PLAT="${{ github.event.inputs.platforms }}"
+            [[ "$PLAT" == "all" || "$PLAT" == "macos" ]] && echo "run_macos=true" >> "$GITHUB_OUTPUT" || echo "run_macos=false" >> "$GITHUB_OUTPUT"
+            [[ "$PLAT" == "all" || "$PLAT" == "windows" ]] && echo "run_windows=true" >> "$GITHUB_OUTPUT" || echo "run_windows=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+            echo "run_macos=true" >> "$GITHUB_OUTPUT"
+            echo "run_windows=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only HEAD~1 HEAD)
+          RUN_MAC="false"
+          RUN_WIN="false"
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+            case "$file" in
+              Windows/*|.github/workflows/ci.yml|.github/workflows/release.yml)
+                RUN_WIN="true"
+                ;;
+              Sources/*|SelfTests/*|Scripts/*|Packaging/*|Package.swift)
+                RUN_MAC="true"
+                ;;
+              VERSION|Resources/*|Design/*)
+                RUN_MAC="true"
+                RUN_WIN="true"
+                ;;
+            esac
+          done <<< "$CHANGED"
+
+          echo "run_macos=${RUN_MAC}" >> "$GITHUB_OUTPUT"
+          echo "run_windows=${RUN_WIN}" >> "$GITHUB_OUTPUT"
+
   macos-build-and-test:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.run_macos == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +84,8 @@ jobs:
           Scripts/build-dmg.sh
 
   windows-build-and-test:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.run_windows == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

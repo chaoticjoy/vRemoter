@@ -57,9 +57,9 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <Button x:Name="TabMixerBtn" Grid.Column="0" Click="OnTabMixerClick" Height="30" BorderThickness="0" Cursor="Hand" />
-                        <Button x:Name="TabMappingBtn" Grid.Column="1" Click="OnTabMappingClick" Height="30" BorderThickness="0" Cursor="Hand" />
-                        <Button x:Name="TabFocusBtn" Grid.Column="2" Click="OnTabFocusClick" Height="30" BorderThickness="0" Cursor="Hand" />
+                        <Button x:Name="TabMixerBtn" Grid.Column="0" Style="{StaticResource ConsoleBareButtonStyle}" Click="OnTabMixerClick" Height="30" Cursor="Hand" />
+                        <Button x:Name="TabMappingBtn" Grid.Column="1" Style="{StaticResource ConsoleBareButtonStyle}" Click="OnTabMappingClick" Height="30" Cursor="Hand" />
+                        <Button x:Name="TabFocusBtn" Grid.Column="2" Style="{StaticResource ConsoleBareButtonStyle}" Click="OnTabFocusClick" Height="30" Cursor="Hand" />
                     </Grid>
                 </Border>
 
